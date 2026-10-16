@@ -3,7 +3,7 @@
    분야 기준 방향을 시안 분야 id(ANCHORS) 대신 지도 응답 groups 순서로 정한다(ANCHOR_DIRS · anchorsOf — 설정에 분야를 더해도 자리가 겹치지 않게).
    2026-10-16 신경망 시안(docs/design/second-brain-neural-20261016/js/globe.js)에서 공으로 모으지 않는 신경망 배치(neuralLayout · layout()의 anchors),
    살짝 휜 네트워크 선(BEND · curveTo), 메인 화면 구체의 주황 가지 선(REST_EDGE), 이를 끄는 options.neural을 옮겼다.
-   스킬 · 루틴은 궤도(토성 고리)로만 두므로 시안의 고리 ↔ 망 날기(flights · modelPosOf)는 옮기지 않았다.
+   스킬 · 루틴은 궤도(토성 고리)로만 두므로 시안의 고리 ↔ 망 날기(flights · modelPosOf)는 옮기지 않았다. 확대 최대는 6배다(시안 3.2 — setZoom).
    ─ 아래는 시안 원문 ─
 /* 세컨드 브레인 지구본 — 배치(layout)와 Canvas 2D 렌더러(createGlobe).
    참고: n1ghtmare-dev/obsidian-cosmograph (MIT). 구 표면 배치 · 이웃 깊이 포커스 · 고른 항목을 앞으로 돌리는 동작을 참고했고
@@ -1621,7 +1621,8 @@
       hover = id; dirty = true;
       hooks.onHover(item, p);
     }
-    function setZoom(z) { zoom = clamp(z, 0.7, 3.2); lastInput = performance.now(); dirty = true; }
+    // 확대 0.7~6배(휠 · +/− 키 · 확대 단추 공통). 신경망 배치에서 폴더 둘레의 작은 문서를 크게 보려고 최대를 3.2에서 6으로 올렸다(2026-10-16)
+    function setZoom(z) { zoom = clamp(z, 0.7, 6); lastInput = performance.now(); dirty = true; }
 
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
