@@ -4,14 +4,18 @@
    메인 대시보드 — 머리줄 · 3열 배치 · 카드 · 세컨드 브레인 지도
    배치 원칙(Rubric OS 참고): 화면 높이 안에 모든 카드가 고정 크기로 들어가고, 내용이 많으면 카드 안에서 스크롤한다.
    좌우 열 너비는 같고(각 1/4), 캘린더 · 이메일은 높이를 고정해 내용이 늘어도 아래로 밀리지 않는다.
-   두 열의 세 번째 영역(다른 대시보드 · 루틴) 위 선이 같은 높이에 오도록 --h-cal · --h-mail을 맞췄고, 남는 높이는 그 아래 빈 공간이 된다. */
+   두 열의 세 번째 영역(다른 대시보드 · 루틴) 위 선이 같은 높이에 오도록 --h-cal · --h-mail을 맞췄고, 남는 높이는 그 아래 빈 공간이 된다.
+   큰 화면(2026-10-16): 너비 제한(1760px)을 풀어 화면 너비만큼 넓히고, 창 높이가 850px를 넘는 만큼 캘린더 · 이메일 카드를 같은 양(--h-grow)씩 늘린다.
+   두 카드가 같은 양만큼 늘어 세 번째 영역 위 선은 그대로 맞는다. 글자 · 아이콘 크기는 그대로다. */
 
 /* ── 머리줄 ── */
 .topbar {
   display: flex; align-items: center; gap: var(--sp-4);
   height: var(--header-h); padding: 0 var(--pad);
-  max-width: 1760px; margin: 0 auto;
+  margin: 0 auto;
 }
+/* 에셋 화면은 내용(.lib)이 1760px에서 멈추므로 머리줄도 같은 폭에서 멈춘다(대시보드는 화면 너비만큼) */
+.topbar:has(~ .lib-page) { max-width: 1760px; }
 .topbar__brand { display: flex; align-items: center; gap: var(--sp-3); text-decoration: none; flex: none; border-radius: var(--r-xs); }
 .topbar__brand img { height: 19px; width: auto; }
 .topbar__by { display: flex; align-items: center; padding-left: var(--sp-3); border-left: 1px solid var(--pebble); }
@@ -41,13 +45,15 @@
   height: calc(100dvh - var(--header-h));
   min-height: 716px; /* 이보다 낮은 창에서는 페이지가 스크롤된다 */
   padding: 0 var(--pad) var(--pad);
-  max-width: 1760px; margin: 0 auto;
+  margin: 0 auto;
+  /* 캘린더 · 이메일 카드에 더하는 높이: 창 높이가 850px를 넘는 만큼(최대 640px). 그보다 낮은 창은 지금 그대로다 */
+  --h-grow: clamp(0px, 100dvh - 850px, 640px);
 }
 .dash__col { display: grid; gap: var(--gap); min-height: 0; min-width: 0; }
 /* 위치를 명시해 두면 세컨드 브레인을 열 때(고정 위치) 좌우 열이 밀리지 않는다 */
-.dash__col--left { grid-column: 1; grid-row: 1; grid-template-rows: auto var(--h-cal) 1fr; }
+.dash__col--left { grid-column: 1; grid-row: 1; grid-template-rows: auto calc(var(--h-cal) + var(--h-grow)) 1fr; }
 .dash > .dash__center { grid-column: 2; grid-row: 1; min-width: 0; }
-.dash__col--right { grid-column: 3; grid-row: 1; grid-template-rows: var(--h-mail) auto 1fr; }
+.dash__col--right { grid-column: 3; grid-row: 1; grid-template-rows: calc(var(--h-mail) + var(--h-grow)) auto 1fr; }
 
 /* ── 카드: 면 · 테두리를 바탕(paper)과 같게 맞춰 상자를 지우고, 위쪽 오렌지 선 하나로 영역을 나눈다.
    좌우 여백이 없어 제목 · 내용이 선 끝과 맞는다(머리줄 로고와도 같은 세로선). 크게 본 세컨드 브레인은 떠 있는 면이라 상자를 유지한다 ── */
@@ -243,6 +249,8 @@
 .link-tile__thumbs svg { height: 52%; width: auto; max-width: 80%; }
 .link-tile__thumbs i:nth-child(1) svg { height: 46%; }
 .link-tile__thumbs .link-tile__spark { width: 20px; height: 20px; }
+/* 셋째 칸 안테나: 서버가 정상이면 주황(확인 중 · 끊김은 시안 회색 그대로) */
+.link-tile__signal[data-state="ok"] rect { fill: var(--accent); }
 .link-tile__foot { display: flex; align-items: center; gap: var(--sp-3); padding: 0 2px; }
 .link-tile__text { flex: 1; min-width: 0; }
 .link-tile__text strong { display: block; font: 600 var(--fs-small)/1.4 var(--font-body); }

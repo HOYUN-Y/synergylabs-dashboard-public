@@ -16,9 +16,18 @@ export async function brainGraphRoutes(app: FastifyInstance, { service }: { serv
     schema: { querystring: { type: 'object', additionalProperties: false, properties: { refresh: { type: 'string', enum: ['1'] }, all: { type: 'string', enum: ['1'] } } } }
   }, request => service.graph(request.query.refresh === '1', request.query.all === '1'));
   app.get<{ Querystring: { id: string } }>('/api/brain/expand', { schema: { querystring: idSchema } }, request => service.expand(request.query.id));
-  app.get<{ Querystring: { q: string } }>('/api/brain/search', { schema: { querystring: {
-    type: 'object', required: ['q'], additionalProperties: false, properties: { q: { type: 'string', maxLength: 200 } }
-  } } }, request => service.search(request.query.q));
+  app.get<{ Querystring: { q: string; scope?: 'quick' | 'body' } }>('/api/brain/search', { schema: { querystring: {
+    type: 'object', required: ['q'], additionalProperties: false, properties: { q: { type: 'string', maxLength: 200 }, scope: { type: 'string', enum: ['quick', 'body'] } }
+  } } }, async (request, reply) => {
+    const disconnected = new AbortController(), timeout = AbortSignal.timeout(25000);
+    const abort = () => disconnected.abort();
+    reply.raw.once('close', abort);
+    try { return await service.search(request.query.q, request.query.scope, AbortSignal.any([disconnected.signal, timeout])); }
+    catch (error) {
+      if (timeout.aborted) throw new BrainError('SEARCH_TIMEOUT', 503, '본문 검색 시간이 초과되었습니다. 빠른 검색 결과는 계속 사용할 수 있습니다.');
+      throw error;
+    } finally { reply.raw.removeListener('close', abort); }
+  });
   app.get<{ Querystring: { id: string } }>('/api/brain/preview', { schema: { querystring: idSchema } }, request => service.preview(request.query.id));
   app.post<{ Body: { id: string } }>('/api/brain/reveal', { bodyLimit: 1024, schema: { body: idSchema } }, request => service.reveal(request.body.id));
 }

@@ -16,6 +16,8 @@ export interface GraphNode {
   capabilities: { preview: boolean; reveal: boolean };
   /** Join with automation/catalog; availability is determined by that catalog, not this ID. */
   automationTargetId?: string;
+  /** 주 라우터·분야 안내의 해당 링크 항목만 포함한다. */
+  searchHints?: { sourcePath: string; text: string }[];
 }
 export interface GraphLink {
   source: string;
@@ -41,5 +43,11 @@ export interface BrainGraph {
   totalNodes: number;
 }
 export interface BrainExpansion { nodes: GraphNode[]; links: GraphLink[]; scannedAt: string }
-export interface BrainSearch { results: { node: GraphNode; ancestors: GraphNode[] }[]; truncated: boolean; scannedAt: string }
+export interface BrainSearchMatch { kind: 'name' | 'path' | 'routing' | 'body'; excerpt?: string; sourcePath?: string }
+export interface BrainSearchResult { node: GraphNode; ancestors: GraphNode[]; match?: BrainSearchMatch }
+export interface BrainSearch {
+  results: BrainSearchResult[]; truncated: boolean; scannedAt: string;
+  /** 본문 검색에서 읽은 수·누락 수. 지도 스캔 누락도 partial에 포함한다. */
+  searchedFiles?: number; skippedFiles?: number; partial?: boolean;
+}
 export interface BrainPreview { id: string; path: string; extension: string; size: number; modifiedAt: string; content: string; format: 'text' }

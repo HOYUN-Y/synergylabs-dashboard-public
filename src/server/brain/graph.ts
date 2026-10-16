@@ -5,10 +5,11 @@ import { automationTargetId } from '../automation/catalog.js';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import type { WorkspaceSettings } from '../../shared/workspace.js';
-import type { BrainExpansion, BrainGraph, BrainPreview, BrainSearch, GraphLink, GraphNode } from '../../shared/brain.js';
+import type { BrainExpansion, BrainGraph, BrainPreview, BrainSearch, BrainSearchMatch, GraphLink, GraphNode } from '../../shared/brain.js';
+import { includesTerms, quickSearch, searchExcerpt, searchTerms } from '../../shared/brain-search.js';
 import { brainNodeId } from '../brain.js';
 import { scanWorkspace } from '../workspace-scan.js';
-import { extractLinks, normalized, createLinkResolver } from './links.js';
+import { extractLinks, normalized, createLinkResolver, routingRows } from './links.js';
 import type { RawLink } from './links.js';
 import { BrainError, checkedPath, excludedPath, readText, revealInFinder, textExtensions } from './files.js';
 import { BrainConfigError, areaOf, groupsOf, loadBrainConfig, routeGuides } from './config.js';
@@ -19,6 +20,7 @@ interface Snapshot {
   key: string; epoch: number; at: number; root: string; output: string; scannedAt: string;
   nodes: GraphNode[]; byId: Map<string, GraphNode>; byPath: Map<string, GraphNode>;
   links: GraphLink[]; visible: Set<string>; warnings: string[]; router: GraphNode | undefined; groups: BrainGraph['groups'];
+  bodies: Map<string, string>; bodyBytes: number; inventoryIncomplete: boolean;
 }
 
 export class BrainGraphService {
@@ -116,6 +118,19 @@ export class BrainGraphService {
       else if (router) warn(`${config.routerFile}가 '${area.name}' 폴더(${area.folder}) 바로 아래의 안내 문서를 링크하지 않습니다.`);
     }
     const guideNodes = nodes.filter(n => n.role === 'guide');
+    for (const guide of [...(router ? [router] : []), ...guideNodes]) {
+      try {
+        const { content } = await readText(root, guide.path, output, 1024 * 1024);
+        for (const row of routingRows(content)) {
+          for (const target of resolveLinks(guide.path, row.links).targets) {
+            const node = byPath.get(target)!;
+            const hint = { sourcePath: guide.path, text: row.text };
+            node.searchHints ??= [];
+            if (!node.searchHints.some(h => h.sourcePath === hint.sourcePath && h.text === hint.text)) node.searchHints.push(hint);
+          }
+        }
+      } catch { warn(`${guide.path}: 라우팅 검색 정보를 읽지 못했습니다.`); }
+    }
     const automationRoots = new Map<string, { group: GraphNode['group']; targetId: string }>();
     for (const node of nodes) if (['SKILL.md', 'skill.md', 'routine.json'].includes(node.name)) {
       if (automationRoots.has(dirname(node.path))) continue;
@@ -156,7 +171,8 @@ export class BrainGraphService {
     }
     for (const node of nodes) if (node.parentId && visibleDirectories.has(byId.get(node.parentId)!.path)) visible.add(node.id);
     for (const node of nodes) if (visibleDirectories.has(node.path)) node.folded = false;
-    const snapshot = { key, epoch, root, output, at: (this.options.now ?? Date.now)(), scannedAt: new Date().toISOString(), nodes, byId, byPath, links, visible, warnings, router, groups };
+    const snapshot: Snapshot = { key, epoch, root, output, at: (this.options.now ?? Date.now)(), scannedAt: new Date().toISOString(), nodes, byId, byPath, links, visible, warnings, router, groups,
+      bodies: new Map(), bodyBytes: 0, inventoryIncomplete: inventory.warnings.length > 0 };
     await this.current(snapshot); this.parsed = nextParsed;
     return snapshot;
   }
@@ -177,17 +193,48 @@ export class BrainGraphService {
     if (node.kind !== 'folder') throw new BrainError('INVALID_INPUT', 400, '폴더를 선택해 주세요.');
     return { nodes: s.nodes.filter(n => n.parentId === id), links: s.links.filter(l => l.source === id || l.target === id || s.byId.get(l.source)?.parentId === id || s.byId.get(l.target)?.parentId === id), scannedAt: s.scannedAt };
   }
-  async search(query: string): Promise<BrainSearch> {
+  async search(query: string, scope: 'quick' | 'body' = 'quick', signal?: AbortSignal): Promise<BrainSearch> {
     if (query.length > 200) throw new BrainError('INVALID_INPUT', 400, '검색어는 200자 이내로 입력해 주세요.');
-    const s = await this.load(), q = normalized(query.trim()).toLowerCase();
-    const score = (n: GraphNode) => { const name = normalized(n.name).toLowerCase(), path = normalized(n.path).toLowerCase(); return name === q ? 100 : name.startsWith(q) ? 80 : name.includes(q) ? 60 : path.includes(q) ? 30 : 0; };
-    const matches = q ? s.nodes.map(node => ({ node, score: score(node) })).filter(n => n.score > 0).sort((a, b) => b.score - a.score || a.node.path.localeCompare(b.node.path, 'ko')) : [];
-    const results = matches.slice(0, 100).map(({ node }) => {
+    signal?.throwIfAborted();
+    const s = await this.load();
+    const found = scope === 'body' ? await this.searchBodies(s, query, signal) : quickSearch(s.nodes, query);
+    const results = found.results.map(({ node, match }) => {
       const ancestors: GraphNode[] = []; let parent = node.parentId ? s.byId.get(node.parentId) : undefined;
       while (parent) { ancestors.unshift(parent); parent = parent.parentId ? s.byId.get(parent.parentId) : undefined; }
-      return { node, ancestors };
+      return { node, ancestors, match };
     });
-    await this.current(s); return { results, truncated: matches.length > 100, scannedAt: s.scannedAt };
+    signal?.throwIfAborted();
+    await this.current(s); return { ...found, results, scannedAt: s.scannedAt };
+  }
+  private async searchBodies(s: Snapshot, query: string, signal?: AbortSignal) {
+    const terms = searchTerms(query), results: { node: GraphNode; match: BrainSearchMatch }[] = [];
+    let searchedFiles = 0, skippedFiles = 0, matches = 0;
+    if (terms.length) for (const node of s.nodes) {
+      if (!node.extension || !['.md', '.txt', '.srt', '.vtt'].includes(node.extension)) continue;
+      signal?.throwIfAborted();
+      if (s.epoch !== this.epoch) throw new BrainError('CONFIG_CHANGED', 409, '작업 공간이 변경되었습니다. 지도를 다시 조회해 주세요.');
+      let content = s.bodies.get(node.id);
+      if (content === undefined) {
+        if (s.bodyBytes >= 64 * 1024 * 1024) { skippedFiles++; continue; }
+        try { content = (await readText(s.root, node.path, s.output, 500 * 1024)).content; }
+        catch { signal?.throwIfAborted(); skippedFiles++; continue; }
+        signal?.throwIfAborted();
+        // 동시 검색에서 같은 문서를 읽어도 캐시 사용량은 한 번만 계산한다.
+        if (!s.bodies.has(node.id)) {
+          const bytes = content.length * 2;
+          if (s.bodyBytes + bytes > 64 * 1024 * 1024) { skippedFiles++; continue; }
+          s.bodies.set(node.id, content); s.bodyBytes += bytes;
+        }
+      }
+      searchedFiles++;
+      if (includesTerms(content, terms)) {
+        matches++;
+        if (results.length < 100) results.push({ node, match: { kind: 'body', excerpt: searchExcerpt(content, terms) } });
+      }
+      // 캐시가 준비된 뒤에도 긴 검색이 이벤트 루프와 취소 처리를 막지 않는다.
+      if (searchedFiles % 32 === 0) await new Promise<void>(resolve => setImmediate(resolve));
+    }
+    return { results, truncated: matches > 100, searchedFiles, skippedFiles, partial: skippedFiles > 0 || s.inventoryIncomplete };
   }
   async preview(id: string): Promise<BrainPreview> {
     const { s, node } = await this.node(id);

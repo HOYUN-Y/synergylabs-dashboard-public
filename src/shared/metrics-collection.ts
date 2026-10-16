@@ -4,13 +4,14 @@ export interface CollectionAttempt {
   id: string;
   service: MetricService;
   trigger: 'manual' | 'scheduled';
-  status: 'running' | 'succeeded' | 'partial' | 'failed';
+  status: 'running' | 'succeeded' | 'partial' | 'failed' | 'cancelled';
   startedAt: string;
   finishedAt: string | null;
   errorCode: string | null;
   retryable: boolean;
   snapshotSaved: boolean;
   pid: number;
+  snapshotFile?: string;
 }
 export interface CollectionState {
   lastAttempt: CollectionAttempt | null;

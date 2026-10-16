@@ -579,6 +579,11 @@
      k = 조절점을 선 길이의 몇 배만큼 옆으로 미는지(부호 = 쪽). g(0~1)만큼만 그리면 그 앞부분 곡선이다(드 카스텔조 분할) */
   const BEND = 0.24;
   const REST_EDGE = 0.4; // 메인 화면 구체의 주황 가지 선 진하기(가까운 쪽 기준)
+  // 네트워크 구체에서 두 선을 함께 볼 때 폴더 구조 선은 옅은 배경 뼈대로 두고 문서 링크를 앞에 세운다(2026-10-16 — 둘 다 분야 색 곡선이라 구분되지 않았다).
+  // ghost: 별자리 선 진하기(문서 링크 0.28), line: 항목 선 진하기(문서 링크 0.55), focus: 고른 이웃 사이(문서 링크 0.95 · 빛 흐름은 문서 링크만), group: 분야 강조 때 더하는 양, width: 굵기
+  const FOLDER_EDGE = { ghost: 0.17, line: 0.24, focus: 0.5, group: 0.08, width: 0.7 };
+  // 문서 링크만 볼 때 문서 링크 선에 더하는 굵기(2026-10-16 — 아주 살짝 두껍게). line: 항목 선(1.15~), ghost: 별자리 선(0.8)
+  const LINK_ONLY_WIDTH = { line: 0.3, ghost: 0.2 };
   const bendOf = key => { const h = hash(key); return BEND * (h < 0.5 ? -1 : 1) * (0.35 + 1.3 * Math.abs(h - 0.5)); };
   function curveCtrl(s0, s1, k) { return { x: (s0.x + s1.x) / 2 - (s1.y - s0.y) * k, y: (s0.y + s1.y) / 2 + (s1.x - s0.x) * k }; }
   function curveAt(s0, s1, k, t) {
@@ -910,6 +915,7 @@
         return c >= 1 / CAMERA ? 1 : LINE_FADE + (1 - LINE_FADE) * smoothstep(1, 1.14, rho);
       };
       const strokes = new Map();
+      const linkOnly = show.markdown && !show.folder; // 문서 링크만 볼 때(LINK_ONLY_WIDTH)
       const bucket = (layer, color, alpha, w, dash) => {
         const key = `${layer}|${color}|${alpha.toFixed(2)}|${w.toFixed(1)}|${dash ? 1 : 0}`;
         let b = strokes.get(key);
@@ -931,9 +937,9 @@
         if (m <= 0) continue;
         const g = m >= 1 ? 1 : clamp((m - gEdgeDelay[j]) / 0.45, 0, 1);
         if (g <= 0) continue;
-        const a = Math.round((e.kind === 'markdown' ? 0.28 : 0.42) * gA * gKeep(ghost.nodes[e.a].group, ghost.nodes[e.b].group) * fog((pa.v[2] + pb.v[2]) / 2) * (0.35 + 0.65 * g) * 20) / 20;
+        const a = Math.round((e.kind === 'markdown' ? 0.28 : show.markdown ? FOLDER_EDGE.ghost : 0.42) * gA * gKeep(ghost.nodes[e.a].group, ghost.nodes[e.b].group) * fog((pa.v[2] + pb.v[2]) / 2) * (0.35 + 0.65 * g) * 20) / 20;
         if (a <= 0) continue;
-        const b = bucket('front', e.color, a, e.kind === 'markdown' ? 0.8 : 0.7, false);
+        const b = bucket('front', e.color, a, e.kind === 'markdown' ? 0.8 + (linkOnly ? LINK_ONLY_WIDTH.ghost : 0) : show.markdown ? FOLDER_EDGE.width : 0.7, false);
         curveTo(b.path, pa.s, pb.s, gBend[j], g);
       }
       /* 고른 항목의 연결(네트워크 구체): 넓고 옅은 빛 두 겹을 더해 칠해 선이 빛나 보이게 하고(맥동), 선을 따라 빛 한 점이 흐른다.
@@ -961,14 +967,15 @@
         if (grow <= 0) continue;
         // 접힌 폴더로 모은 연결(점선)은 요약이라 한 단계 옅게. 위성과 문서를 잇는 줄은 행성 앞을 지나므로 더 옅게(고르면 또렷)
         const tether = pa.orbit || pb.orbit;
-        let alpha = e.kind === 'markdown' ? (tether ? 0.26 : e.rerouted ? 0.4 : 0.55) : 0.4;
-        let w = e.kind === 'markdown' ? 1.15 + Math.min(1.6, Math.log2(e.count) * 0.55) : 0.8;
+        const faint = look.volume && e.kind !== 'markdown' && show.markdown; // 문서 링크와 함께 보일 때만 폴더 구조 선을 옅은 뼈대로(FOLDER_EDGE). 폴더 구조만 볼 때는 원래 진하기
+        let alpha = e.kind === 'markdown' ? (tether ? 0.26 : e.rerouted ? 0.4 : 0.55) : faint ? FOLDER_EDGE.line : 0.4;
+        let w = e.kind === 'markdown' ? 1.15 + Math.min(1.6, Math.log2(e.count) * 0.55) + (linkOnly ? LINK_ONLY_WIDTH.line : 0) : faint ? FOLDER_EDGE.width : 0.8;
         // 폴더 구조 선은 회색이다. 네트워크 구체에서는 하위 항목의 분야 색으로(빛날 때도 분야 색으로 빛난다)
         const color = e.kind === 'markdown' ? e.color : look.volume && byId.has(e.b) ? byId.get(e.b).color : colors.ash;
         if (hl.focus) {
-          if (hl.focus.has(e.a) && hl.focus.has(e.b)) { alpha = 0.95; w += 0.7; } else alpha *= 0.08;
+          if (hl.focus.has(e.a) && hl.focus.has(e.b)) { alpha = faint ? FOLDER_EDGE.focus : 0.95; w += faint ? 0.3 : 0.7; } else alpha *= 0.08;
         } else if (hl.group) {
-          if (e.groups.has(hl.group)) alpha = Math.min(1, alpha + 0.2); else alpha *= 0.1;
+          if (e.groups.has(hl.group)) alpha = Math.min(1, alpha + (faint ? FOLDER_EDGE.group : 0.2)); else alpha *= 0.1;
         }
         alpha = Math.round(alpha * grow * 20) / 20;
         if (alpha <= 0) continue;
@@ -978,7 +985,7 @@
           const g = m >= 1 ? 1 : clamp((m - 0.2) / 0.6, 0, 1);
           if (g <= 0) continue;
           const bend = edgeBend(e);
-          const glowing = look.glow && hl.focus && hl.focus.has(e.a) && hl.focus.has(e.b);
+          const glowing = look.glow && !faint && hl.focus && hl.focus.has(e.a) && hl.focus.has(e.b);
           const b = bucket('front', color, glowing ? alpha : Math.round(alpha * fog((pa.v[2] + pb.v[2]) / 2) * 20) / 20, w, e.rerouted);
           curveTo(b.path, pa.s, pb.s, bend, g);
           if (glowing) glowLine(pa.s, pb.s, color, w, grow, `${e.a}>${e.b}`, bend, g);

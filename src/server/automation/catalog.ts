@@ -9,7 +9,7 @@ import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type { AutomationCatalog, AutomationItem } from '../../shared/automation.js';
 import { AutomationError } from './errors.js';
 
-export interface DiscoveredItem extends AutomationItem { file: string; adapter: 'skill' | 'ghost' | null }
+export interface DiscoveredItem extends AutomationItem { file: string; adapter: 'skill' | 'ghost' | 'youtube' | 'brain-review' | null; reviewSkillId?: string }
 export const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 // 기존 실행 ID를 보존하도록 OS의 상대경로 구분자를 사용한다.
 export function automationTargetId(root: string, file: string, relativePath = relative) {
@@ -43,6 +43,15 @@ export async function cliExecutable(name: 'claude' | 'codex') {
   return null;
 }
 export const claudeExecutable = () => cliExecutable('claude');
+export async function ghostConfiguration(root: string, directory: string, env: NodeJS.ProcessEnv = process.env) {
+  if (env.API_URL !== undefined || env.CONTENT_API_KEY !== undefined) {
+    const missing = ['API_URL', 'CONTENT_API_KEY'].filter(key => !env[key]?.trim());
+    return { reason: missing.length ? `중앙 환경 설정에 ${missing.join('·')}가 필요합니다.` : null,
+      environment: missing.length ? undefined : { API_URL: env.API_URL!, CONTENT_API_KEY: env.CONTENT_API_KEY! } };
+  }
+  try { await checkedFile(root, join(directory, '.env')); return { reason: null, environment: undefined }; }
+  catch { return { reason: '중앙 환경 설정에 API_URL·CONTENT_API_KEY가 필요합니다. 기존 루틴 .env도 없습니다.', environment: undefined }; }
+}
 export function localProcessEnvironment() {
   // CLI 로그인과 루틴 자체 환경 파일을 사용하며 서버의 다른 서비스 비밀값은 전달하지 않는다.
   return Object.fromEntries(['HOME', 'PATH', 'TMPDIR', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'SHELL', 'TERM', 'XDG_CONFIG_HOME']
@@ -97,16 +106,25 @@ export async function discover(root: string, checkClaude = claudeReadiness, inve
         adapter = 'skill'; reason = claudeReason;
       } else {
         const config = JSON.parse(text);
-        info = { name: typeof config.name === 'string' ? config.name.slice(0, 160) : '프로그램 루틴', description: 'Ghost 최신 공개 글의 원본 JSON과 본문 HTML을 수집합니다.' };
+        // routine.json에 description이 있으면 그 설명을, 없으면 기존 Ghost 루틴 설명을 유지한다
+        info = { name: typeof config.name === 'string' ? config.name.slice(0, 160) : '프로그램 루틴',
+          description: typeof config.description === 'string' && config.description.trim() ? config.description.trim().slice(0, 400) : 'Ghost 최신 공개 글의 원본 JSON과 본문 HTML을 수집합니다.' };
         if (folder === 'routine-collect-newsletter' && config.id === 'collect-newsletter-example'
           && config.type === 'program' && config.entrypoint === 'collect-newsletter.mjs' && config.limit === 1 && config.outputDir === 'output') {
           await checkedFile(root, join(directory, config.entrypoint)); adapter = 'ghost';
-          try { await checkedFile(root, join(directory, '.env')); reason = null; }
-          catch { reason = '루틴 폴더의 로컬 환경 설정이 필요합니다.'; }
+          reason = (await ghostConfiguration(root, directory)).reason;
+        }
+        if (folder === 'routine-collect-youtube-metrics' && config.id === 'collect-youtube-metrics'
+          && config.type === 'program' && config.adapter === 'youtube-metrics') {
+          adapter = 'youtube'; reason = null;
+          if (typeof config.description !== 'string' || !config.description.trim()) info.description = 'YouTube 공개 롱폼 지표의 수동·예약 수집과 실행 기록을 확인합니다.';
+        }
+        if (folder === 'routine-brain-review' && config.id === 'brain-review-prepare' && config.type === 'program') {
+          adapter = 'brain-review'; reason = null;
         }
       }
       items.push({ id: automationTargetId(root, file), kind, ...info,
-        path, ready: adapter !== null && reason === null, reason, file, adapter });
+        path, ready: adapter !== null && reason === null, reason, file, adapter, ...(adapter === 'youtube' ? { metricsService: 'youtube' as const } : {}) });
     } catch { warnings.push(`${relative(root, directory).normalize('NFC')}: 안내 파일 또는 실행 설정을 확인하지 못했습니다.`); }
   }
   items.sort((a, b) => Number(b.ready) - Number(a.ready) || a.name.localeCompare(b.name, 'ko') || a.path.localeCompare(b.path));

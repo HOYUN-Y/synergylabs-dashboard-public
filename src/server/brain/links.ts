@@ -4,7 +4,8 @@ import { posix } from 'node:path';
 export interface RawLink { target: string; wiki: boolean }
 export const normalized = (path: string) => path.normalize('NFC');
 
-export function extractLinks(text: string): RawLink[] {
+/** 코드 펜스 · 들여쓴 코드 · 주석 · 인라인 코드를 뺀 링크 분석용 본문(review의 설명 부족 점검에서도 쓴다) */
+export function linkSource(text: string) {
   const lines: string[] = [];
   let fence: { char: string; length: number } | null = null;
   for (const line of text.split(/\r?\n/)) {
@@ -17,9 +18,16 @@ export function extractLinks(text: string): RawLink[] {
     if (/^( {4}|\t)/.test(line)) continue;
     lines.push(line);
   }
-  const source = lines.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/(`+)([^`]|(?!\1)`)*?\1/g, '');
+  return lines.join('\n').replace(/<!--[\s\S]*?-->/g, '').replace(/(`+)([^`]|(?!\1)`)*?\1/g, '');
+}
+
+export function extractLinks(text: string, visit?: (link: RawLink, start: number, end: number, label: string) => void): RawLink[] {
+  const source = linkSource(text);
   const result: RawLink[] = [];
-  for (const match of source.matchAll(/\[\[([^\]\n]+)\]\]/g)) result.push({ target: match[1].split('|')[0].trim(), wiki: true });
+  for (const match of source.matchAll(/\[\[([^\]\n]+)\]\]/g)) {
+    const link = { target: match[1].split('|')[0].trim(), wiki: true };
+    result.push(link); visit?.(link, match.index!, match.index! + match[0].length, match[1].split('|')[1] ?? link.target);
+  }
   for (const match of source.matchAll(/\]\(\s*/g)) {
     let i = match.index! + match[0].length, target = '', depth = 0;
     const angle = source[i] === '<';
@@ -33,9 +41,28 @@ export function extractLinks(text: string): RawLink[] {
       if (c === '\n') break;
       target += c;
     }
-    if (target && (angle ? source[i] === '>' : source[i] === ')' || /\s/.test(source[i] ?? ''))) result.push({ target, wiki: false });
+    if (target && (angle ? source[i] === '>' : source[i] === ')' || /\s/.test(source[i] ?? ''))) {
+      const link = { target, wiki: false }; result.push(link);
+      const start = source.lastIndexOf('[', match.index), end = source.indexOf(')', i);
+      if (start >= 0 && end >= i && !source.slice(start, end).includes('\n')) visit?.(link, start, end + 1, source.slice(start + 1, match.index));
+    }
   }
   return result;
+}
+
+/** 목록 항목/표 행 안의 설명만 공유한다. 링크 경로는 설명에서 제거한다. */
+export function routingRows(text: string): { links: RawLink[]; text: string }[] {
+  const rows: { links: RawLink[]; text: string }[] = [];
+  for (const line of linkSource(text).split('\n')) {
+    const spans: { start: number; end: number; label: string }[] = [];
+    const links = extractLinks(line, (_link, start, end, label) => spans.push({ start, end, label }));
+    if (!links.length) continue;
+    let plain = line;
+    for (const span of spans.sort((a, b) => b.start - a.start)) plain = plain.slice(0, span.start) + span.label + plain.slice(span.end);
+    plain = plain.replace(/^[\s#>*+-]+/, '').replace(/\|/g, ' ').replace(/\s+/g, ' ').trim();
+    if (plain) rows.push({ links, text: plain });
+  }
+  return rows;
 }
 
 export function createLinkResolver(paths: string[]) {

@@ -48,7 +48,7 @@ export function MetricsCollectionControl({ collection }: { collection: MetricsCo
     <dl className="metric-collect__facts">
       <div><dt><Icon name="clock" className="i--xs" />자동 수집</dt><dd>{status ? status.schedule.registered ? '매일 09:00 KST' : '이 Mac에 예약 없음' : '확인 중'}</dd></div>
       <div><dt><Icon name={running ? 'refresh' : failed ? 'alert' : 'check'} className="i--xs" />최근 수집</dt>
-        <dd role="status">{running ? '수집 중…' : attempt ? attempt.status === 'succeeded' ? `${fmt.when(attempt.finishedAt ?? attempt.startedAt)} 성공` : `${fmt.when(attempt.finishedAt ?? attempt.startedAt)} ${attempt.snapshotSaved ? '일부 실패' : '실패'}` : current?.lastSuccessAt ? `${fmt.when(current.lastSuccessAt)} 성공` : '기록 없음'}</dd></div>
+        <dd role="status">{running ? '수집 중…' : attempt ? attempt.status === 'succeeded' ? `${fmt.when(attempt.finishedAt ?? attempt.startedAt)} 성공` : `${fmt.when(attempt.finishedAt ?? attempt.startedAt)} ${attempt.status === 'cancelled' ? '취소됨' : attempt.snapshotSaved ? '일부 실패' : '실패'}` : current?.lastSuccessAt ? `${fmt.when(current.lastSuccessAt)} 성공` : '기록 없음'}</dd></div>
       {current?.nextRetryAt && <div><dt><Icon name="restart" className="i--xs" />재시도 예정</dt><dd>{fmt.at(current.nextRetryAt)}</dd></div>}
     </dl>
     {running && <span className="bar bar--busy metric-collect__bar" aria-hidden="true"><i /></span>}

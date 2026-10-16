@@ -52,7 +52,7 @@ export function buildApp(staticRoot?: string, mail = new MailService(), calendar
     });
   });
   app.register(mailRoutes, { prefix: '/api/mail', service: mail, startup });
-  app.register(metricsRoutes, { prefix: '/api/metrics', reader: new GhostMetricsReader() });
+  app.register(metricsRoutes, { prefix: '/api/metrics', reader: new GhostMetricsReader(), collection: automation.collection });
   app.register(calendarRoutes, { prefix: '/api/calendar', service: calendar, startup });
   app.register(automationRoutes, { prefix: '/api/automation', service: automation, startup });
   app.register(assetRoutes, { prefix: '/api/assets', service: assets, startup });

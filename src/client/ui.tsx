@@ -31,7 +31,7 @@ export function Notice({ icon = 'info', attention, role, className, children }: 
   return <div className={['notice', attention && 'notice--attention', className].filter(Boolean).join(' ')} role={role}><Icon name={icon} /><div className="notice__text">{children}</div></div>;
 }
 
-export const statusIcon = (status: RunStatus) => ({ succeeded: 'check', failed: 'alert', waiting_input: 'message', needs_input: 'message', running: 'clock', queued: 'clock', cancelling: 'clock' } as Partial<Record<RunStatus, string>>)[status] ?? 'info';
+export const statusIcon = (status: RunStatus) => ({ succeeded: 'check', failed: 'alert', partial: 'alert', waiting_input: 'message', needs_input: 'message', running: 'clock', queued: 'clock', cancelling: 'clock' } as Partial<Record<RunStatus, string>>)[status] ?? 'info';
 
 /** 실행 경과 시간(분:초). 1초마다 다시 그린다 */
 export function Elapsed({ since }: { since: string }) {

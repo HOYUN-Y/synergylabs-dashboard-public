@@ -32,6 +32,7 @@ export function RunDetail({ run, busy, error, onRetryOutput, onDownload }: {
       <div><dt>시작</dt><dd>{fmt.when(run.createdAt)}</dd></div>
       <div><dt>소요</dt><dd className="tnum">{seconds === null ? '—' : fmt.elapsed(seconds)}</dd></div>
       <div><dt>실행 도구</dt><dd>{tool(run)}</dd></div>
+      {run.trigger && <div><dt>실행 방식</dt><dd>{run.trigger === 'scheduled' ? '자동 예약' : '수동 실행'}</dd></div>}
     </dl>
     <p className="run__message" role="status">{run.message}</p>
     <OutputStatus run={run} busy={busy} onRetry={onRetryOutput} />

@@ -1,3 +1,9 @@
+import { readReviewReport, recoverManualReview, reportRun, reviewReports } from '../brain/review-update.js';
+import { loadBrainConfig } from '../brain/config.js';
+import { reviewDirectory, ReviewError } from '../brain/review.js';
+import { MetricsCollection } from '../metrics/collection.js';
+import { CollectionError, CollectionStore } from '../metrics/collection-store.js';
+import { metricsRun, metricsArtifact } from './metrics.js';
 import { scanWorkspace, clearWorkspaceScan } from '../workspace-scan.js';
 import { constants } from 'node:fs';
 import { defaultWorkspace, defaultOutput } from '../workspace-paths.js';
@@ -17,7 +23,7 @@ import { executeTask } from './runner.js';
 import type { RunResult, Task, TaskRunner } from './runner.js';
 
 function publicRun(run: StoredRun): AutomationRun {
-  return { ...(run.context ? { context: run.context } : {}), id: run.id, targetId: run.targetId, kind: run.kind, name: run.name, sourcePath: run.sourcePath, sourceHash: run.sourceHash,
+  return { ...(run.trigger ? { trigger: run.trigger } : {}), ...(run.context ? { context: run.context } : {}), id: run.id, targetId: run.targetId, kind: run.kind, name: run.name, sourcePath: run.sourcePath, sourceHash: run.sourceHash,
     status: run.status, createdAt: run.createdAt, startedAt: run.startedAt, finishedAt: run.finishedAt, message: run.message, result: run.result, artifacts: run.artifacts, ...(run.output ? { output: run.output } : {}), ...(run.execution ? { execution: run.execution } : {}), ...(run.conversationId ? { conversationId: run.conversationId, turn: run.turn } : {}) };
 }
 export class AutomationService {
@@ -29,11 +35,16 @@ export class AutomationService {
   private worker: Promise<void> | null = null;
   private closing = false;
   private storageFailed = false;
-  constructor(private store = new AutomationStore(), private runner: TaskRunner = executeTask, private scan = discover, private options: () => Promise<ExecutionOptions> = executionOptions) {}
+  constructor(private store = new AutomationStore(), private runner: TaskRunner = executeTask, private scan = discover, private options: () => Promise<ExecutionOptions> = executionOptions,
+    readonly collection = new MetricsCollection(new CollectionStore(join(store.directory, 'metrics-collection')))) {}
   executionOptions() { return this.options(); }
   private async prepared(root: string) {
     const result = await this.scan(root, undefined, await scanWorkspace(root, (await this.settings()).outputDirectory));
     for (const item of result.items) {
+      if (item.adapter === 'youtube') {
+        item.ready = process.platform === 'darwin' && this.collection.available('youtube');
+        item.reason = item.ready ? null : '수집 담당 Mac의 YouTube API·저장 경로 설정이 필요합니다.';
+      }
       if (item.kind !== 'skill') continue;
       const settings = await this.store.skillSettings(item.id);
       if (settings.execution?.provider === 'codex' && item.adapter === 'skill') {
@@ -43,6 +54,19 @@ export class AutomationService {
         if (!provider?.models.some(m => m.id === settings.execution!.model && m.efforts.includes(settings.execution!.effort))) {
           item.ready = false; item.reason = '저장된 모델·effort를 사용할 수 없습니다. 스킬 설정에서 다시 선택해 주세요.';
         }
+      }
+    }
+    if (result.items.some(item => item.adapter === 'brain-review')) {
+      const config = await loadBrainConfig();
+      const folder = config.areas.find(area => area.id === 'skills')!.folder;
+      const skill = result.items.find(item => item.kind === 'skill' && item.path.normalize('NFC') === `${folder}/brain-review/SKILL.md`);
+      let pathReason: string | null = null;
+      try { await checkedFile(root, join(root, config.routerFile)); await reviewDirectory(root, { config }); }
+      catch (error) { pathReason = error instanceof ReviewError ? error.message : '라우터와 점검 상태 경로를 확인해 주세요.'; }
+      for (const item of result.items.filter(item => item.adapter === 'brain-review')) {
+        item.ready = skill?.ready === true && !pathReason;
+        item.reason = pathReason ?? (skill ? skill.reason : 'brain-review 스킬 문서를 읽을 수 없습니다. Drive 다운로드와 작업 공간을 확인해 주세요.');
+        item.reviewSkillId = skill?.id;
       }
     }
     return result;
@@ -68,6 +92,10 @@ export class AutomationService {
         }
         if (isActive(run.status)) {
           run.status = 'interrupted'; run.finishedAt = new Date().toISOString(); run.message = '서버가 재시작되었습니다. 결과를 확인한 뒤 다시 실행해 주세요.';
+          if (run.sourcePath.endsWith('routine-brain-review/routine.json')) {
+            const report = await recoverManualReview(run.workspace, run.id);
+            if (report) { run.result = reportRun(report).result; run.status = report.status; run.finishedAt = report.finishedAt; run.message = report.message; }
+          }
           await this.persistRun(run);
         }
         this.runs.set(run.id, run);
@@ -83,6 +111,7 @@ export class AutomationService {
     return this.exclusive(async () => {
       await this.init();
       if ([...this.runs.values()].some(run => isActive(run.status))) throw new AutomationError('BUSY');
+      if ((await this.metricEntries()).some(e => isActive(e.run.status))) throw new AutomationError('BUSY');
       if (typeof value !== 'string' || (output !== undefined && typeof output !== 'string')) throw new AutomationError('INVALID_INPUT');
       const workspace = value.trim() ? await workspacePath(value.trim()) : '';
       const previous = await this.store.settings();
@@ -99,12 +128,32 @@ export class AutomationService {
     if (!settings.workspace) throw new AutomationError('NOT_CONFIGURED');
     return workspacePath(settings.workspace);
   }
+  private async metricEntries() {
+    const root = await this.root().catch((e: unknown) => {
+      if (e instanceof AutomationError && ['NOT_CONFIGURED', 'INVALID_INPUT'].includes(e.code)) return null;
+      throw e;
+    });
+    if (!root) return [];
+    const inventory = await scanWorkspace(root, (await this.settings()).outputDirectory);
+    const item = (await this.scan(root, async () => null, inventory)).items.find(i => i.adapter === 'youtube');
+    if (!item) return [];
+    return (await this.collection.store.history()).map(entry => ({ ...entry, run: metricsRun(entry.attempt, item, entry.cancelling) }));
+  }
+  private async reviewEntries() {
+    const workspace = (await this.settings()).workspace;
+    const reports = await reviewReports(workspace);
+    if (!reports.length) return [];
+    const items = (await this.scan(workspace, async () => null)).items;
+    const item = items.find(item => item.adapter === 'brain-review');
+    return reports.filter(report => !this.runs.has(report.id)).map(report => ({ report,
+      run: { ...reportRun(report), ...(item ? { targetId: item.id, sourcePath: item.path } : {}) } }));
+  }
   async catalog() {
     const root = await this.root();
     const result = await this.prepared(root);
     if (root !== await this.root()) throw new AutomationError('NOT_READY');
     return { warnings: result.warnings, items: result.items.map(item => ({ id: item.id, kind: item.kind, name: item.name,
-      description: item.description, path: item.path, ready: item.ready, reason: item.reason })) };
+      description: item.description, path: item.path, ready: item.ready, reason: item.reason, ...(item.metricsService ? { metricsService: item.metricsService } : {}) })) };
   }
   private async checkSkill(id: string) {
     const root = await this.root();
@@ -127,18 +176,24 @@ export class AutomationService {
   async history(targetId?: string, latestPerTarget = false) {
     await this.init();
     if (this.storageFailed) throw new AutomationError('STORAGE_FAILED');
-    const sorted = [...this.runs.values()].filter(run => !targetId || run.targetId === targetId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const sorted = [...[...this.runs.values()].map(publicRun), ...(await this.metricEntries()).map(e => e.run), ...(await this.reviewEntries()).map(e => e.run)]
+      .filter(run => !targetId || run.targetId === targetId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     if (latestPerTarget) {
       const seen = new Set<string>();
-      return { runs: sorted.filter(run => { if (seen.has(run.targetId)) return false; seen.add(run.targetId); return true; }).map(publicRun) };
+      return { runs: sorted.filter(run => { if (seen.has(run.targetId)) return false; seen.add(run.targetId); return true; }) };
     }
-    return { runs: [...sorted.filter(run => isActive(run.status)), ...sorted.filter(run => !isActive(run.status)).slice(0, 20)].map(publicRun) };
+    return { runs: [...sorted.filter(run => isActive(run.status)), ...sorted.filter(run => !isActive(run.status)).slice(0, 20)] };
   }
   async notifications(cursor?: string): Promise<NotificationPage> {
     await this.init();
     if (this.storageFailed) throw new AutomationError('STORAGE_FAILED');
-    const all = [...this.runs.values()].filter(run => run.notification)
-      .sort((a, b) => b.notification!.createdAt.localeCompare(a.notification!.createdAt) || b.id.localeCompare(a.id));
+    const review = (await this.reviewEntries()).map(e => e.report);
+    const all: AutomationNotification[] = [
+      ...(await this.metricEntries()).filter(e => !isActive(e.run.status)).map(e => ({ id: e.run.id, kind: 'routine' as const, name: e.run.name,
+        status: e.run.status, createdAt: e.run.finishedAt ?? e.run.createdAt, readAt: e.readAt })),
+      ...[...this.runs.values()].filter(run => run.notification).map(run => this.publicNotification(run)),
+      ...review.map(r => ({ id: r.id, kind: 'routine' as const, name: '세컨드 브레인 자동 갱신', status: r.status, createdAt: r.finishedAt ?? r.createdAt, readAt: r.readAt }))
+    ].sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id));
     let start = 0;
     if (cursor !== undefined) {
       const index = all.findIndex(run => run.id === cursor);
@@ -146,8 +201,8 @@ export class AutomationService {
       start = index + 1;
     }
     const selected = all.slice(start, start + 50);
-    return { notifications: selected.map(run => this.publicNotification(run)),
-      unreadCount: all.filter(run => run.notification!.readAt === null).length,
+    return { notifications: selected,
+      unreadCount: all.filter(run => run.readAt === null).length,
       nextCursor: start + selected.length < all.length ? selected.at(-1)!.id : null };
   }
   private publicNotification(run: StoredRun): AutomationNotification {
@@ -159,8 +214,16 @@ export class AutomationService {
       await this.init();
       if (this.storageFailed) throw new AutomationError('STORAGE_FAILED');
       const run = this.runs.get(id);
-      if (!run?.notification) throw new AutomationError('NOT_FOUND');
+      if (!run?.notification) {
+        const metric = (await this.metricEntries()).find(e => e.run.id === id);
+        if (metric && !isActive(metric.run.status)) return { id, kind: 'routine' as const, name: metric.run.name, status: metric.run.status,
+          createdAt: metric.run.finishedAt ?? metric.run.createdAt, readAt: await this.collection.store.markRead(id) };
+        const r = await readReviewReport((await this.settings()).workspace, id, true);
+        if (!r) throw new AutomationError('NOT_FOUND');
+        return { id: r.id, kind: 'routine' as const, name: '세컨드 브레인 자동 갱신', status: r.status, createdAt: r.finishedAt ?? r.createdAt, readAt: r.readAt };
+      }
       if (run.notification.readAt === null) {
+        if (run.sourcePath.endsWith('routine-brain-review/routine.json')) await readReviewReport(run.workspace, id, true);
         const updated = { ...run, notification: { ...run.notification, readAt: new Date().toISOString() } };
         await this.store.saveRun(updated);
         run.notification = updated.notification;
@@ -172,7 +235,13 @@ export class AutomationService {
     await this.init();
     if (this.storageFailed) throw new AutomationError('STORAGE_FAILED');
     const run = this.runs.get(id);
-    if (!run) throw new AutomationError('NOT_FOUND');
+    if (!run) {
+      const metric = (await this.metricEntries()).find(e => e.run.id === id);
+      if (metric) return metric.run;
+      const report = (await this.reviewEntries()).find(entry => entry.run.id === id);
+      if (!report) throw new AutomationError('NOT_FOUND');
+      return report.run;
+    }
     return publicRun(run);
   }
   start(id: unknown, input: unknown, useSavedInput = false) {
@@ -186,6 +255,21 @@ export class AutomationService {
       const item = (await this.prepared(workspace)).items.find(item => item.id === id);
       if (!item) throw new AutomationError('NOT_FOUND');
       if (!item.ready) throw new AutomationError('NOT_READY');
+      if (item.adapter === 'brain-review' && (input !== '' || useSavedInput)) throw new AutomationError('INVALID_INPUT');
+      if (item.adapter === 'youtube') {
+        if (input !== '' || useSavedInput) throw new AutomationError('INVALID_INPUT');
+        const existing = (await this.metricEntries()).find(e => isActive(e.run.status));
+        if (existing) return existing.run;
+        try {
+          const started = await this.collection.start('youtube');
+          const attempt = await this.collection.store.attempt(started.id);
+          if (!attempt) throw new AutomationError('STORAGE_FAILED');
+          return metricsRun(attempt, item);
+        } catch (e) {
+          if (e instanceof AutomationError) throw e;
+          throw new AutomationError(e instanceof CollectionError && e.code === 'BUSY' ? 'BUSY' : 'EXECUTION_FAILED');
+        }
+      }
       if (useSavedInput) {
         if (item.kind !== 'skill' || input !== '') throw new AutomationError('INVALID_INPUT');
         input = (await this.store.skillSettings(item.id)).input;
@@ -200,6 +284,10 @@ export class AutomationService {
         run.outputRoot = await realpath(output).catch(() => output);
       }
       if (item.kind === 'skill') run.execution = (await this.store.skillSettings(item.id)).execution ?? { ...defaultExecution };
+      if (item.adapter === 'brain-review') {
+        run.execution = (await this.store.skillSettings(item.reviewSkillId!)).execution ?? { ...defaultExecution };
+        run.trigger = 'manual';
+      }
       if (item.adapter === 'skill') Object.assign(run, { conversationId: run.id, turn: 1,
         ...(run.execution?.provider === 'codex' ? {} : { sessionId: randomUUID() }), sessionReady: false, input: note.trim() });
       await this.persistRun(run);
@@ -287,8 +375,10 @@ export class AutomationService {
       catch (caught) { error = caught instanceof AutomationError ? caught : new AutomationError('EXECUTION_FAILED'); }
       await this.exclusive(async () => {
         const run = { ...task.run };
+        // 중지/서버 종료에도 이미 반영한 변경 보고를 보존한다.
+        if (task.item.adapter === 'brain-review' && result) run.result = result.result;
         if (this.closing) { run.status = 'interrupted'; run.message = '서버 종료로 중단되었습니다. 생성된 파일을 확인해 주세요.'; }
-        else if (task.controller.signal.aborted) { run.status = 'cancelled'; run.message = new AutomationError('CANCELLED').message; }
+        else if (task.controller.signal.aborted && !(task.item.adapter === 'brain-review' && result)) { run.status = 'cancelled'; run.message = new AutomationError('CANCELLED').message; }
         else if (result) {
           run.status = result.status ?? 'succeeded'; run.message = result.message; run.result = result.result;
           if (result.context) run.context = result.context;
@@ -308,7 +398,12 @@ export class AutomationService {
     return this.exclusive(async () => {
       await this.init();
       const run = this.runs.get(id);
-      if (!run) throw new AutomationError('NOT_FOUND');
+      if (!run) {
+        const metric = (await this.metricEntries()).find(e => e.run.id === id);
+        if (!metric) throw new AutomationError('NOT_FOUND');
+        await this.collection.cancel(id);
+        return (await this.metricEntries()).find(e => e.run.id === id)!.run;
+      }
       if (run.status === 'queued') {
         run.status = 'cancelled'; run.finishedAt = new Date().toISOString(); run.message = '대기 중인 작업을 취소했습니다.';
         await this.persistRun(run);
@@ -321,8 +416,10 @@ export class AutomationService {
   }
   async artifact(id: string, name: string) {
     await this.get(id);
+    const metric = (await this.metricEntries()).find(e => e.run.id === id);
+    if (metric) return metricsArtifact(metric.attempt, name, this.collection.outputDirectory());
     const run = this.runs.get(id)!;
-    if (!run.artifacts.includes(name) || !run.artifactDirectory) throw new AutomationError('NOT_FOUND');
+    if (!run || !run.artifacts.includes(name) || !run.artifactDirectory) throw new AutomationError('NOT_FOUND');
     const root = run.kind === 'skill' ? this.store.runDirectory(id) : join(run.workspace, dirname(run.sourcePath), 'output');
     const resolved = await realpath(run.artifactDirectory).catch(() => { throw new AutomationError('PATH_DENIED'); });
     if (!inside(await realpath(root), resolved) || (run.kind === 'routine' && !inside(run.workspace, resolved))) throw new AutomationError('PATH_DENIED');
@@ -331,7 +428,8 @@ export class AutomationService {
   retryOutput(id: string) {
     return this.exclusive(async () => {
       await this.get(id);
-      const run = this.runs.get(id)!;
+      const run = this.runs.get(id);
+      if (!run) throw new AutomationError('NOT_READY');
       if (run.kind !== 'skill' || isActive(run.status) || !run.outputRoot || !run.artifacts.length) throw new AutomationError('NOT_READY');
       run.output = await exportArtifacts(run, this.store);
       await this.persistRun(run);

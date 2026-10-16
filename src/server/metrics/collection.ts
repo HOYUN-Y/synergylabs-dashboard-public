@@ -19,6 +19,12 @@ export class MetricsCollection {
     return !!(service === 'ghost' ? this.env.GHOST_ADMIN_API_URL && this.env.GHOST_ADMIN_API_KEY && isAbsolute(this.env.GHOST_METRICS_DIR ?? '')
       : this.env.YOUTUBE_DATA_API_KEY && isAbsolute(this.env.YOUTUBE_METRICS_DIR ?? ''));
   }
+  outputDirectory() { return this.env.YOUTUBE_METRICS_DIR ?? ''; }
+  async cancel(id: string) {
+    const attempt = await this.store.attempt(id);
+    if (!attempt) throw new CollectionError('NOT_FOUND');
+    if (recoverState({ lastAttempt: attempt, lastSuccessAt: null }).lastAttempt?.status === 'running') await this.store.requestCancel(id);
+  }
   async status(now = new Date()): Promise<CollectionStatus> {
     let registered = false;
     try { await access(scheduleFile()); await promisify(execFile)('/bin/launchctl', ['print', `gui/${process.getuid!()}/${scheduleLabel}`], { timeout: 2000, maxBuffer: 65536 }); registered = true; } catch { /* 미등록 */ }
@@ -42,10 +48,22 @@ export class MetricsCollection {
     let resolveDone!: (a: CollectionAttempt) => void, rejectDone!: (e: unknown) => void;
     const done = new Promise<CollectionAttempt>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
     void done.catch(() => {});
-    let ready = false, timedOut = false, output = '', bytes = 0;
+    let ready = false, timedOut = false, cancelled = false, closed = false, output = '', bytes = 0, checkingCancel = false;
     const kill = (signal: NodeJS.Signals) => { try { if (child.pid) process.kill(-child.pid, signal); } catch { /* 이미 종료됨 */ } };
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); killTimer = setTimeout(() => kill('SIGKILL'), 3000); }, this.timeout + 3000);
+    // 요청 파일의 PID로 죽이지 않는다. 실제 자식을 소유한 실행기만 자기 프로세스 그룹을 종료한다.
+    const cancelTimer = service === 'youtube' ? setInterval(() => {
+      if (!ready || cancelled || timedOut || checkingCancel) return;
+      checkingCancel = true;
+      void (async () => {
+        if (await this.store.cancelRequested(id) && (await this.store.attempt(id))?.status === 'running' && !closed) {
+          cancelled = true;
+          // 정상 취소는 worker가 잠금 안에서 기록한다. 응답하지 않을 때만 소유 그룹을 종료한다.
+          killTimer = setTimeout(() => { kill('SIGTERM'); killTimer = setTimeout(() => kill('SIGKILL'), 3000); }, 3000);
+        }
+      })().catch(() => { /* 상태 저장 오류는 완료/상태 조회에서 보고한다. */ }).finally(() => { checkingCancel = false; });
+    }, 250) : undefined;
     child.stdout.on('data', (chunk: Buffer) => {
       bytes += chunk.length;
       if (bytes > 16384) { kill('SIGTERM'); return; }
@@ -57,16 +75,18 @@ export class MetricsCollection {
     child.stderr.on('data', () => { /* 원문 오류·환경값을 기록하지 않는다. */ });
     child.on('error', () => { rejectStart(new CollectionError('EXECUTION_FAILED')); });
     child.on('close', async code => {
-      if (timedOut) kill('SIGKILL');
-      clearTimeout(timer); clearTimeout(killTimer);
+      closed = true;
+      if (timedOut || cancelled) kill('SIGKILL');
+      clearTimeout(timer); clearTimeout(killTimer); clearInterval(cancelTimer);
       try {
         if (!ready) throw new CollectionError(code === 75 ? 'BUSY' : timedOut ? 'TIMEOUT' : 'EXECUTION_FAILED');
         const finished = output.trim().split('\n').slice(1).map(line => { try { return JSON.parse(line) as { finished?: CollectionAttempt }; } catch { return {}; } }).find(v => v.finished?.id === id)?.finished;
-        if (finished && ['succeeded', 'partial', 'failed'].includes(finished.status)) { if (finished.errorCode === 'TIMEOUT') kill('SIGKILL'); resolveDone(finished); return; }
-        const state = await this.store.read(service);
+        if (finished && ['succeeded', 'partial', 'failed', 'cancelled'].includes(finished.status)) { if (finished.errorCode === 'TIMEOUT' || finished.status === 'cancelled') kill('SIGKILL'); resolveDone(finished); return; }
+        const state = service === 'youtube' ? { lastAttempt: await this.store.attempt(id) } : await this.store.read(service);
         if (state.lastAttempt?.id !== id) throw new CollectionError('EXECUTION_FAILED');
         if (state.lastAttempt.status === 'running') {
-          state.lastAttempt = { ...state.lastAttempt, status: 'failed', finishedAt: new Date().toISOString(), errorCode: timedOut ? 'TIMEOUT' : 'INTERRUPTED', retryable: true };
+          state.lastAttempt = { ...state.lastAttempt, status: cancelled ? 'cancelled' : 'failed', finishedAt: new Date().toISOString(), errorCode: cancelled ? 'CANCELLED' : timedOut ? 'TIMEOUT' : 'INTERRUPTED', retryable: !cancelled };
+          if (service === 'youtube') await this.store.saveAttempt(state.lastAttempt);
         }
         resolveDone(state.lastAttempt);
       } catch (e) { rejectStart(e); rejectDone(e); }
@@ -84,7 +104,9 @@ export class MetricsCollection {
       } catch (e) {
         if (e instanceof CollectionError && e.code === 'BUSY') continue;
         // 잠금을 얻기 전의 실패는 다른 실행의 상태를 덮어쓰지 않는다.
-        outcomes.push({ id: randomUUID(), service, trigger: 'scheduled', status: 'failed', startedAt: now.toISOString(), finishedAt: new Date().toISOString(), errorCode: e instanceof CollectionError ? e.code : 'EXECUTION_FAILED', retryable: false, snapshotSaved: false, pid: process.pid });
+        const failed: CollectionAttempt = { id: randomUUID(), service, trigger: 'scheduled', status: 'failed', startedAt: now.toISOString(), finishedAt: new Date().toISOString(), errorCode: e instanceof CollectionError ? e.code : 'EXECUTION_FAILED', retryable: false, snapshotSaved: false, pid: process.pid };
+        if (service === 'youtube') await this.store.saveAttempt(failed);
+        outcomes.push(failed);
       }
     }
     return outcomes;
