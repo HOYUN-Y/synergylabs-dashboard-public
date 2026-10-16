@@ -23,7 +23,7 @@ interface RecordMeta extends Omit<Fact, 'content'> { format: 'brain-memory-v1'; 
 interface RecordFile { fact: Fact; meta: RecordMeta; history: string }
 interface Context { root: string; folder: string; directory: string; index: string; files: string[] }
 
-function factInput(value: unknown): Fact {
+export function factInput(value: unknown): Fact {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail('INVALID_INPUT', '기억 입력은 JSON 객체여야 합니다.');
   const v = value as Record<string, unknown>;
   const string = (key: string, max: number, multiline = false) => {

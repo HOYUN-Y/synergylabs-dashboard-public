@@ -9,10 +9,17 @@ import { automationApi } from './automation-api';
 import { openSkillConversation } from './SkillConversation';
 import { SkillExecutionSettings } from './SkillExecutionSettings';
 import { RunHistory } from './RunParts';
+import { useMetricsCollection } from './MetricsCollectionControl';
 import { Elapsed, EmptyState, IconButton, Skel, closeOnBackdrop, scrollHint, toast } from './ui';
 
 const message = (error: unknown) => error instanceof Error ? error.message : '요청을 처리하지 못했습니다.';
 const openSkillSettings = (id: string) => updateLocation({ settings: 'skills', skill: id });
+function YouTubeSchedule() {
+  const collected = useCallback(async () => {}, []);
+  const { status, current, pollError } = useMetricsCollection('youtube', collected);
+  return <p className="routine__state">{pollError || (!status ? '예약 확인 중' : status.schedule.registered ? '이 Mac · 매일 09:00 KST' : '이 Mac에 예약 없음')}
+    {current?.nextRetryAt && ` · 재시도 ${fmt.at(current.nextRetryAt)}`}</p>;
+}
 /** 결과 보기: 대화가 있으면 대화 서랍, 없으면 실행 결과 창 */
 const openResult = (run: AutomationRun) => run.conversationId ? openSkillConversation(run.conversationId) : updateLocation({ run: run.id });
 
@@ -222,19 +229,20 @@ export function AutomationPanels() {
     <section className="card routines" aria-labelledby="routines-heading" aria-busy={loading}>
       <header className="card__head">
         <h2 className="card__title" id="routines-heading"><Icon name="routine" />루틴</h2>
-        <span className="card__meta" data-tip="지표 자동 수집은 지표 자세히에서 확인합니다">수동 실행 · 예약 미연결</span>
+        <span className="card__meta" data-tip="실행 기록과 예약 상태는 이 Mac 기준입니다">이 Mac의 실행 기록</span>
         <CardStatus label={(catalogError || runError) && catalog ? '조회 실패' : null} tip={catalogError || runError} />
         <div className="card__tools"><IconButton icon="history" label="루틴 실행 기록" tip="실행 기록" size="sm" className="reveal" aria-haspopup="dialog" onClick={() => setHistoryOpen(true)} /></div>
       </header>
       {loading && !catalog ? <CardSkeleton label="루틴을 불러오는 중" rows={2} />
         : catalogError && !catalog ? <EmptyState icon="alert" title="루틴 목록을 읽지 못했습니다" text={catalogError} role="alert" />
-          : !routines.length ? <EmptyState icon="clock" title="등록된 루틴이 없습니다" text="작업 공간의 루틴/ 폴더에 README를 추가하면 표시됩니다." />
+          : !routines.length ? <EmptyState icon="clock" title="등록된 루틴이 없습니다" text="작업 공간의 루틴/ 폴더에 routine.json을 추가하면 표시됩니다." />
             : <ul className="routines__list" ref={scrollHint} aria-label="루틴 목록">{routines.map(item => {
               const run = runs.find(run => run.targetId === item.id);
               const running = !!run && isActive(run.status);
               return <li className="routine" key={item.id} data-state={run ? run.status : 'idle'}>
                 <div>
                   <p className="routine__name" title={item.description}>{item.name}</p>
+                  {item.metricsService === 'youtube' && <YouTubeSchedule />}
                   <p className="routine__state" aria-live="polite">{!item.ready ? <span>{item.reason ?? '실행 불가'}</span>
                     : running ? <><span>{runLabels[run.status]}</span>{run.startedAt && <Elapsed since={run.startedAt} />}</>
                       : run ? <><span>최근 {fmt.when(run.finishedAt ?? run.createdAt)} ·</span><button type="button" data-tip="실행 결과 보기" onClick={() => updateLocation({ run: run.id })}>{runLabels[run.status]}</button></>

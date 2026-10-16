@@ -60,6 +60,14 @@
       "dark": "#9e7ded"
     },
     {
+      "id": "content-assets",
+      "name": "콘텐츠에셋",
+      "folder": "콘텐츠에셋",
+      "ring": "asset",
+      "color": "#c76b20",
+      "dark": "#f5ad62"
+    },
+    {
       "id": "memory",
       "name": "기억",
       "folder": "memory",

@@ -3,6 +3,7 @@
 import type { BrainGraph, GraphLink, GraphNode } from '../../shared/brain';
 import iconSprite from '../brand/icons.svg?raw';
 import { layout, neuralLayout } from './globe-renderer.js';
+import { orbitOf, unitLabels } from './orbit';
 import type { Ghost, Layout, SceneItem, SceneOrbit, Vec3 } from './globe-renderer.js';
 
 export const SHAPES: Record<string, string> = { skill: 'diamond', doc: 'circle', asset: 'square', routine: 'triangle' };
@@ -21,12 +22,14 @@ export interface BrainModel {
   graph: FullGraph; byId: Map<string, GraphNode>; kids: Map<string, GraphNode[]>; depth: Map<string, number>; geo: Layout;
   md: GraphLink[]; out: Map<string, string[]>; inc: Map<string, string[]>;
   shownGroups: BrainGraph['groups']; counts: Record<string, number>; filesUnder: Map<string, number>;
-  /** 궤도(스킬 · 루틴) 쪽 항목 · 그 위성(스킬 · 루틴 하나 = 깊이 2 폴더) */
+  /** 궤도(스킬 · 루틴) 쪽 항목 · 그 위성(스킬 · 루틴 하나 = 설정 폴더 바로 아래 폴더 또는 흩어진 정의 파일 폴더 — orbit.ts) */
   orbital: Set<string>; unitOf: Map<string, string>; orbitList: { id: string; units: GraphNode[] }[]; units: GraphNode[]; unitIds: Set<string>;
   /** 처음 보이는 항목(궤도 쪽 · 접어 둔 파일 제외) */
   initial: Set<string>;
   /** 3차원 자리(행성 = 그래프의 문서 · 폴더)와 별자리 */
   pos: Map<string, Vec3>; ghost: Ghost;
+  /** 문서 링크 보기: 문서 링크 양끝 항목과, 그 점과 문서 링크 선만 남긴 별자리 */
+  linked: Set<string>; ghostLinked: Ghost;
   colorOf(group: string): string; groupName(group: string): string;
 }
 
@@ -54,27 +57,9 @@ export function buildModel(graph: FullGraph): BrainModel {
     return d;
   };
   graph.nodes.forEach(depthOf);
-  /* 궤도 항목: 스킬 · 루틴 분야 중 같은 분야의 최상위 폴더(스킬/ · 루틴/) 아래에 있는 것. 최상위 폴더는 궤도 자체(허브),
-     그 바로 아래 폴더(깊이 2 — 스킬 · 루틴 하나)가 위성이고, 더 깊은 파일은 자기 위성에 속한다. 다른 곳에 놓인 스킬은 행성에 그대로 둔다 */
-  const topOf = (n: GraphNode) => {
-    let x: GraphNode | undefined = n;
-    while (x?.parentId && byId.get(x.parentId) && byId.get(x.parentId)!.parentId !== null) x = byId.get(x.parentId);
-    return x;
-  };
-  const orbital = new Set(graph.nodes.filter(n => {
-    if (n.parentId === null || n.id === graph.centerId || !(n.group in SATURN)) return false;
-    return topOf(n)?.group === n.group;
-  }).map(n => n.id));
-  const unitOf = new Map<string, string>();
-  for (const n of graph.nodes) {
-    if (!orbital.has(n.id)) continue;
-    let x: GraphNode | undefined = n;
-    while (x && depth.get(x.id)! > 2) x = x.parentId ? byId.get(x.parentId) : undefined;
-    if (x && depth.get(x.id) === 2 && x.kind === 'folder') unitOf.set(n.id, x.id);
-  }
-  const orbitList = Object.keys(SATURN).map(g => ({ id: g, units: graph.nodes
-    .filter(n => orbital.has(n.id) && n.group === g && depth.get(n.id) === 2 && n.kind === 'folder').sort((a, b) => a.name.localeCompare(b.name, 'ko')) }))
-    .filter(o => o.units.length);
+  /* 궤도 항목: 설정 폴더(스킬/ · 루틴/) 아래 항목과, 그 밖에 흩어진 스킬 · 루틴 정의 파일(SKILL.md · routine.json) 폴더 — orbit.ts의 orbitOf.
+     설정 폴더 자체는 궤도(허브), 그 바로 아래 폴더와 흩어진 정의 파일 폴더가 위성이고, 더 깊은 파일은 자기 위성에 속한다 */
+  const { orbital, unitOf, orbitList } = orbitOf(graph, byId, depth);
   const units = orbitList.flatMap(o => o.units);
   // 행성 배치는 궤도 항목을 뺀 문서만으로 정한다
   const geo = layout({ ...graph, nodes: graph.nodes.filter(n => !orbital.has(n.id)) });
@@ -89,7 +74,7 @@ export function buildModel(graph: FullGraph): BrainModel {
   const countFiles = (n: GraphNode): number => {
     const known = filesUnder.get(n.id);
     if (known !== undefined) return known;
-    const c = n.kind === 'file' ? 1 : (kids.get(n.id) ?? []).reduce((sum, k) => sum + countFiles(k), 0);
+    const c = n.kind === 'file' ? 1 : (kids.get(n.id) ?? []).filter(k => !orbital.has(k.id)).reduce((sum, k) => sum + countFiles(k), 0);
     filesUnder.set(n.id, c);
     return c;
   };
@@ -118,20 +103,29 @@ export function buildModel(graph: FullGraph): BrainModel {
   const pos = new Map(planet.map((n, i) => [n.id, xyz[i]]));
   const ghost: Ghost = { nodes: planet.map((n, i) => ({ id: n.id, pos: xyz[i], color: colorOf(n.group), group: n.group, file: n.kind === 'file' })),
     edges: links.filter(l => l.a >= 0 && l.b >= 0) };
+  const linked = new Set(md.flatMap(l => [l.source, l.target]));
+  const keepAt = new Map<number, number>();
+  ghost.nodes.forEach((n, i) => { if (linked.has(n.id!)) keepAt.set(i, keepAt.size); });
+  const ghostLinked: Ghost = { nodes: ghost.nodes.filter((_, i) => keepAt.has(i)),
+    edges: ghost.edges.filter(e => e.kind === 'markdown' && keepAt.has(e.a) && keepAt.has(e.b)).map(e => ({ ...e, a: keepAt.get(e.a)!, b: keepAt.get(e.b)! })) };
   return { graph, byId, kids, depth, geo, md, out, inc, shownGroups, counts, filesUnder, orbital, unitOf, orbitList, units,
-    unitIds: new Set(units.map(u => u.id)), initial, pos, ghost, colorOf, groupName };
+    unitIds: new Set(units.map(u => u.id)), initial, pos, ghost, linked, ghostLinked, colorOf, groupName };
 }
 
 /* 위성 · 고리: 열린 구체와 메인 화면 구체가 같은 고리를 쓴다. 분야마다 고리 하나를 통째로 쓰고 위성을 같은 간격으로 앉히며,
    이름은 고리 끝(스킬 왼쪽 · 루틴 오른쪽)에 고정한다. 위성은 스킬 · 루틴 카드와 같은 아이콘(#i-skill · #i-routine)으로 그린다 */
-export function orbitScene(m: BrainModel, live = new Set<string>()): { items: SceneItem[]; orbits: SceneOrbit[] } {
+/* keep: 남길 위성(문서 링크 보기 — 링크가 닿는 위성만). 남은 위성끼리 고리를 다시 같은 간격으로 나누고, 위성이 없는 고리는 그리지 않는다.
+   이름표 구분(unitLabels)은 전체 위성 기준이라 보기를 바꿔도 같다 */
+export function orbitScene(m: BrainModel, live = new Set<string>(), keep?: (id: string) => boolean): { items: SceneItem[]; orbits: SceneOrbit[] } {
   const items: SceneItem[] = [];
-  const orbits = m.orbitList.map((o, index): SceneOrbit => {
+  const labels = new Map(m.orbitList.flatMap(o => [...unitLabels(o.units, m.byId)]));
+  const list = keep ? m.orbitList.map(o => ({ ...o, units: o.units.filter(u => keep(u.id)) })).filter(o => o.units.length) : m.orbitList;
+  const orbits = list.map((o, index): SceneOrbit => {
     const ring = SATURN[o.id];
     o.units.forEach((u, slot) => items.push({
       id: u.id, node: u, orbit: { index, slot, count: o.units.length }, group: u.group, color: m.colorOf(u.group), shape: SHAPES[u.ring] || 'circle',
       symbol: o.id === 'skills' ? 'skill' : 'routine', hollow: false, guide: u.role === 'guide', size: 8, folded: false, badge: 0, live: live.has(u.id),
-      label: u.name, depth: 2, delay: 900 + index * 240 + slot * 40
+      label: labels.get(u.id) ?? u.name, depth: 2, delay: 900 + index * 240 + slot * 40
     }));
     return { id: o.id, label: m.groupName(o.id), count: o.units.length, color: m.colorOf(o.id), radius: ring.radius, speed: TAU / ring.period, phase: ring.phase,
       space: 'model', arcStart: 0, arcEnd: TAU, labelAt: o.id === 'skills' ? Math.PI : 0, labelSide: o.id === 'skills' ? 'left' : 'right' };

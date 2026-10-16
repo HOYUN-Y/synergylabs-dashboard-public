@@ -2,21 +2,21 @@ import { spawn } from 'node:child_process';
 import { readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { DiscoveredItem } from './catalog.js';
-import { checkedFile, claudeExecutable, cliExecutable, hash, inside, localProcessEnvironment } from './catalog.js';
+import { checkedFile, claudeExecutable, cliExecutable, ghostConfiguration, hash, inside, localProcessEnvironment } from './catalog.js';
 import { AutomationError } from './errors.js';
 import type { AutomationStore, StoredRun } from './store.js';
 import { executeSkill } from './skill-runner.js';
 import type { SkillContext, SkillDocumentCandidate } from '../../shared/automation.js';
 
 export interface Task { run: StoredRun; item: DiscoveredItem; input: string; selectionCandidates?: SkillDocumentCandidate[]; onContext?: (context: SkillContext) => Promise<void> }
-export interface RunResult { status?: 'succeeded' | 'waiting_input' | 'needs_input'; sessionId?: string; context?: SkillContext; message: string; result: string; artifacts: string[]; artifactDirectory: string }
-export interface ProcessSpec { command: string; args: string[]; cwd: string; input?: string; timeout: number }
+export interface RunResult { status?: 'succeeded' | 'waiting_input' | 'needs_input' | 'failed' | 'cancelled'; sessionId?: string; context?: SkillContext; message: string; result: string; artifacts: string[]; artifactDirectory: string }
+export interface ProcessSpec { command: string; args: string[]; cwd: string; input?: string; timeout: number; ghostEnv?: { API_URL: string; CONTENT_API_KEY: string } }
 export type ProcessRunner = (spec: ProcessSpec, signal: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
 export type TaskRunner = (task: Task, signal: AbortSignal, store: AutomationStore) => Promise<RunResult>;
 
 export const runProcess: ProcessRunner = (spec, signal) => new Promise((resolve, reject) => {
   if (signal.aborted) { reject(new AutomationError('CANCELLED')); return; }
-  const child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: localProcessEnvironment(), shell: false,
+  const child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: { ...localProcessEnvironment(), ...(spec.ghostEnv ? { API_URL: spec.ghostEnv.API_URL, CONTENT_API_KEY: spec.ghostEnv.CONTENT_API_KEY } : {}) }, shell: false,
     detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
   let failure: AutomationError | null = null;
   let output = '';
@@ -63,11 +63,17 @@ export async function executeTask(task: Task, signal: AbortSignal, store: Automa
   const source = await readFile(await checkedFile(root, file), 'utf8');
   if (hash(source) !== run.sourceHash) throw new AutomationError('NOT_READY');
   if (item.adapter === 'skill') return executeSkill(task, source, signal, store, execute, findClaude, findCodex);
+  if (item.adapter === 'brain-review') {
+    const { executeReviewTask } = await import('./review.js');
+    return executeReviewTask(task, signal, store);
+  }
   if (item.adapter !== 'ghost') throw new AutomationError('NOT_READY');
   const directory = dirname(item.file);
   const script = await checkedFile(run.workspace, join(directory, 'collect-newsletter.mjs'));
-  await checkedFile(run.workspace, join(directory, '.env'));
-  const response = await execute({ command: process.execPath, args: ['--env-file=.env', script], cwd: directory, timeout: 45000 }, signal);
+  const config = await ghostConfiguration(run.workspace, directory);
+  if (config.reason) throw new AutomationError('NOT_READY');
+  const response = await execute({ command: process.execPath, args: [...(config.environment ? [] : ['--env-file=.env']), script],
+    ...(config.environment ? { ghostEnv: config.environment } : {}), cwd: directory, timeout: 45000 }, signal);
   if (response.code !== 0) throw new AutomationError('EXECUTION_FAILED');
   try {
     const data = JSON.parse(response.stdout);

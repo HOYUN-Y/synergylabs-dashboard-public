@@ -1,4 +1,4 @@
-import type { BrainPreview } from '../../shared/brain';
+import type { BrainPreview, BrainSearch } from '../../shared/brain';
 import type { FullGraph } from './model';
 
 /** 서버 오류 코드(NOT_FOUND · UNSUPPORTED_TYPE 등)를 함께 넘긴다. 문구는 그대로 message */
@@ -19,6 +19,7 @@ async function request<T>(path: string, init: RequestInit & { timeout?: number }
 export const brainApi = {
   // 처음 스캔은 작업 공간 크기에 따라 오래 걸릴 수 있다
   graph: (signal: AbortSignal, force = false) => request<FullGraph>(`graph?all=1${force ? '&refresh=1' : ''}`, { signal, timeout: 120000 }),
+  searchBody: (query: string, signal: AbortSignal) => request<BrainSearch>(`search?scope=body&q=${encodeURIComponent(query)}`, { signal }),
   preview: (id: string, signal?: AbortSignal) => request<BrainPreview>(`preview?id=${id}`, { signal }),
   reveal: (id: string) => request<{ ok: true }>('reveal', { method: 'POST', body: JSON.stringify({ id }) })
 };

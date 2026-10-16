@@ -3,6 +3,7 @@
 import type { AutomationItem, AutomationRun } from '../../shared/automation';
 import { isActive } from '../../shared/automation';
 import type { GraphNode } from '../../shared/brain';
+import { quickSearch } from '../../shared/brain-search';
 import { fmt } from '../format';
 import { toast } from '../ui';
 import { brainApi } from './api';
@@ -14,12 +15,13 @@ const EXPAND_LIMIT = 900;   // 모두 펼치기 상한. 실제 작업 공간(약
 const TUCK_MAX = 200;       // 폴더 아래 전체의 이미지 · 데이터가 이보다 많으면 바로 아래 것만 펼친다
 const USAGE_KEY = 'sl-brain-usage';
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
-const norm = (text: string) => text.normalize('NFC').toLocaleLowerCase();
 const posix = (path: string) => path.split('\\').join('/').normalize('NFC');
 
 /** 메인 화면 구체(OrbGlobe)가 등록한다: 열 때 · 닫을 때 같은 자리 · 크기 · 각도로 잇는다(뷰포트 좌표) */
 export interface OrbHandle { view(): GlobeView | null; setView(view: GlobeView): void; pause(): void; resume(): void; focus(): void }
 export type FavoriteSection = [title: string, items: { n: GraphNode; item?: AutomationItem }[]];
+/** 연결 보기: 전체(두 선 — 폴더 구조는 옅은 뼈대) · 폴더 구조만 · 문서 링크만(링크가 닿는 항목만 남긴다) */
+export type EdgeMode = 'all' | 'folder' | 'markdown';
 
 export class BrainController {
   globe: Globe | null = null;
@@ -40,8 +42,9 @@ export class BrainController {
   depth = 1;
   groupFilter: string | null = null;
   view: 'globe' | 'table' = 'globe';
-  showMd = true;
-  showFolder = true;
+  edgeMode: EdgeMode = 'all'; // 2026-10-16 — 두 선이 헷갈려 범례에서 셋 중 하나로 고른다. 전체에서는 폴더 구조 선을 옅은 뼈대로(globe-renderer FOLDER_EDGE)
+  get showMd() { return this.edgeMode !== 'folder'; }
+  get showFolder() { return this.edgeMode !== 'markdown'; }
   auto = !matchMedia('(prefers-reduced-motion: reduce)').matches;
   open = false;
   scene: Scene = { items: [], edges: [], orbits: [] };
@@ -73,7 +76,7 @@ export class BrainController {
   /* ── 렌더러 연결: 열린 카드의 캔버스가 붙을 때 · 떨어질 때 ── */
   attach(globe: Globe) {
     this.globe = globe;
-    globe.setGhost(this.m.ghost);
+    globe.setGhost(this.edgeMode === 'markdown' ? this.m.ghostLinked : this.m.ghost);
     globe.setEdges({ markdown: this.showMd, folder: this.showFolder });
     globe.setAutoRotate(this.auto);
     this.refresh();
@@ -90,8 +93,8 @@ export class BrainController {
     while (n && !this.isShown(n.id)) n = n.parentId ? this.m.byId.get(n.parentId) : undefined;
     return n ? n.id : null;
   }
-  /** 접힘 = 펼치면 새로 보일 하위가 있는 폴더(접어 둔 파일은 펼치기가 아니라 고르기로 보인다) */
-  isFolded = (n: GraphNode) => n.kind === 'folder' && !this.m.orbital.has(n.id) && !this.expanded.has(n.id) && (this.m.kids.get(n.id) ?? []).some(c => !isTucked(c));
+  /** 접힘 = 펼치면 새로 보일 하위가 있는 폴더(접어 둔 파일은 펼치기가 아니라 고르기로 보이고, 궤도로 간 하위는 고리에 있다) */
+  isFolded = (n: GraphNode) => n.kind === 'folder' && !this.m.orbital.has(n.id) && !this.expanded.has(n.id) && (this.m.kids.get(n.id) ?? []).some(c => !isTucked(c) && !this.m.orbital.has(c.id));
   /** 구체 위 자리: 궤도 항목은 자기 위성, 행성 항목은 보이는 가장 가까운 상위(접힌 폴더). 궤도 허브(스킬/ · 루틴/)는 자리가 없다 */
   placeOf = (id: string) => (this.m.orbital.has(id) ? this.m.unitOf.get(id) ?? null : this.visibleAncestor(id));
   private sceneIdOf = (id: string | null) => (id ? this.placeOf(id) : null);
@@ -118,7 +121,7 @@ export class BrainController {
   }
   private tuckReveal = (n: GraphNode) => { const all = this.tuckUnder(n); return all.length <= TUCK_MAX ? all : this.tuckKids(n); };
   /** 펼치면 새로 보이는 하위 수(접어 둔 파일은 빼고 센다) */
-  unfoldCount = (n: GraphNode) => (this.m.kids.get(n.id) ?? []).filter(c => !isTucked(c)).length;
+  unfoldCount = (n: GraphNode) => (this.m.kids.get(n.id) ?? []).filter(c => !isTucked(c) && !this.m.orbital.has(c.id)).length;
   private openTuck(folderId: string | null) {
     if (folderId === this.tuckOpen) return false;
     this.tuckOpen = folderId;
@@ -185,8 +188,6 @@ export class BrainController {
         label: n.name, depth: d, delay: 240 + d * 120 + (k++ % 14) * 16
       };
     });
-    const ring = orbitScene(m, live);
-    items.push(...ring.items);
     const edges: SceneEdge[] = [];
     for (const id of [...this.visible, ...this.tuckShown]) {
       const n = m.byId.get(id)!;
@@ -195,6 +196,13 @@ export class BrainController {
       const a = this.tuckShown.has(id) && !this.isShown(n.parentId) ? this.visibleAncestor(n.parentId) : n.parentId;
       if (!a || !this.isShown(a) || (m.geo.core.has(n.id) && m.geo.core.has(a))) continue;
       edges.push({ a, b: n.id, kind: 'folder', count: 1, rerouted: a !== n.parentId, groups: new Set([n.group]) });
+    }
+    // 흩어진 스킬 · 루틴(설정 폴더 밖 위성)은 망에 남은 원래 폴더(접혔으면 보이는 가장 가까운 상위 — 점선)와 잇는다. 가운데 핵으로는 잇지 않는다
+    for (const u of m.units) {
+      if (!u.parentId || m.orbital.has(u.parentId)) continue;
+      const a = this.visibleAncestor(u.parentId);
+      if (!a || m.geo.core.has(a)) continue;
+      edges.push({ a, b: u.id, kind: 'folder', count: 1, rerouted: a !== u.parentId, groups: new Set([u.group]) });
     }
     // 접힌 폴더 안쪽을 가리키는 문서 링크는 보이는 가장 가까운 상위 폴더로 모은다(점선)
     const merged = new Map<string, SceneEdge>();
@@ -216,7 +224,15 @@ export class BrainController {
     }
     // 양쪽 끝이 모두 접힌 폴더 안쪽인 연결은 요약(summary)이다. 평소에는 숨기고, 그 폴더를 고르면 보인다
     for (const e of merged.values()) e.summary = !e.direct;
-    return { items, edges: edges.concat([...merged.values()]), orbits: ring.orbits };
+    if (this.edgeMode !== 'markdown') {
+      const ring = orbitScene(m, live);
+      return { items: items.concat(ring.items), edges: edges.concat([...merged.values()]), orbits: ring.orbits };
+    }
+    // 문서 링크 보기: 보이는 문서 링크(요약 제외 — 접힌 폴더로 모은 점선 포함)의 양끝과 가운데 핵 · 고른 항목만 남긴다
+    const keep = new Set<string>([...items.filter(x => x.core).map(x => x.id), ...(this.selected ? [this.placeOf(this.selected)] : [])].filter((id): id is string => !!id));
+    for (const e of merged.values()) if (!e.summary) { keep.add(e.a); keep.add(e.b); }
+    const ring = orbitScene(m, live, id => keep.has(id));
+    return { items: items.filter(x => keep.has(x.id)).concat(ring.items), edges: [...merged.values()].filter(e => keep.has(e.a) && keep.has(e.b)), orbits: ring.orbits };
   }
   /** 이웃: 지금 보이는 선(문서 링크 · 폴더 구조 중 켜 둔 것)을 따라 depth 단계까지 */
   private focusSet(id: string) {
@@ -247,14 +263,15 @@ export class BrainController {
     this.highlight();
     const shownMd = this.scene.edges.filter(e => e.kind === 'markdown' && !e.summary).length;
     const sats = this.m.units.length;
-    this.stat = `${fmt.num(this.m.graph.nodes.length)}개 중 ${fmt.num(this.visible.size + this.tuckShown.size + sats)}개 표시 · 문서 링크 ${fmt.num(shownMd)}`;
+    const shown = this.edgeMode === 'markdown' ? this.scene.items.length : this.visible.size + this.tuckShown.size + sats;
+    this.stat = `${fmt.num(this.m.graph.nodes.length)}개 중 ${fmt.num(shown)}개 표시${this.showMd ? ` · 문서 링크 ${fmt.num(shownMd)}` : ''}`;
     this.emit();
   }
 
   /* ── 펼치기 · 접기 ── */
   private expandFolder(id: string) {
     this.expanded.add(id);
-    for (const c of this.m.kids.get(id) ?? []) if (!isTucked(c)) this.visible.add(c.id);
+    for (const c of this.m.kids.get(id) ?? []) if (!isTucked(c) && !this.m.orbital.has(c.id)) this.visible.add(c.id);
   }
   private collapseFolder(id: string) {
     this.expanded.delete(id);
@@ -327,7 +344,8 @@ export class BrainController {
     if (tucked || reveal || undone) this.refresh();
     if (n.parentId === null && n.id !== this.m.graph.centerId) { this.select(this.m.graph.centerId, { rotate }); return; }
     this.selected = id;
-    this.highlight();
+    // 문서 링크 보기에서는 링크가 없는 항목도 고르는 동안 남긴다(장면을 다시 만든다)
+    if (this.edgeMode === 'markdown') this.refresh(); else this.highlight();
     const at = this.sceneIdOf(id);
     if (rotate && at) this.globe?.focusOn(at);
     this.hover = null;
@@ -339,7 +357,7 @@ export class BrainController {
     this.selected = null;
     // 펼쳐 둔 이미지 · 데이터와 잠깐 펼친 폴더를 다시 접는다
     const tucked = this.openTuck(null), undone = this.unreveal();
-    if (tucked || undone) this.refresh(); else { this.highlight(); this.emit(); }
+    if (tucked || undone || this.edgeMode === 'markdown') this.refresh(); else { this.highlight(); this.emit(); }
   }
   /** 열린 구체를 닫을 때: 다시 열면 접힌 채로 시작한다 */
   resetForClose() {
@@ -363,11 +381,14 @@ export class BrainController {
       this.announce(`${this.m.groupName(id)}만 또렷하게`);
     } else this.emit();
   }
-  setEdgeKind(kind: 'markdown' | 'folder') {
-    if (kind === 'markdown') this.showMd = !this.showMd; else this.showFolder = !this.showFolder;
+  setEdgeMode(mode: EdgeMode) {
+    if (mode === this.edgeMode) return;
+    const ghostChanged = this.edgeMode === 'markdown' || mode === 'markdown';
+    this.edgeMode = mode;
     this.globe?.setEdges({ markdown: this.showMd, folder: this.showFolder });
-    if (this.selected) this.highlight();
-    this.emit();
+    if (ghostChanged) this.globe?.setGhost(mode === 'markdown' ? this.m.ghostLinked : this.m.ghost);
+    this.refresh(); // 장면(문서 링크 보기는 항목을 거른다) · 이웃 강조 · 표시 수
+    this.announce(mode === 'all' ? '연결 전체 보기' : mode === 'folder' ? '폴더 구조만 보기' : '문서 링크만 보기 · 링크가 닿는 항목만');
   }
   setAuto(on: boolean) { this.auto = on; this.globe?.setAutoRotate(on); this.emit(); }
   setView(next: 'globe' | 'table') {
@@ -442,12 +463,8 @@ export class BrainController {
     return this.favoriteCache;
   }
 
-  /* ── 찾기: 작업 공간 전체(접힌 폴더 안까지)에서 이름 · 경로로 찾는다 ── */
+  /* ── 빠른 찾기: 이름·경로와 주 라우터·분야 안내의 설명 ── */
   search(query: string) {
-    const q = norm(query.trim());
-    if (!q) return [];
-    const score = (n: GraphNode) => (norm(n.name).startsWith(q) ? 0 : norm(n.name).includes(q) ? 1 : 2);
-    return this.m.graph.nodes.filter(n => n.parentId !== null && norm(`${n.name} ${n.path}`).includes(q))
-      .sort((a, b) => score(a) - score(b) || a.path.length - b.path.length).slice(0, 40);
+    return quickSearch(this.m.graph.nodes, query);
   }
 }

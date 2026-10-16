@@ -6,7 +6,7 @@ export interface ExecutionOptions {
   providers: { id: ExecutionSettings['provider']; ready: boolean; reason: string | null;
     models: { id: string; name: string; efforts: string[] }[] }[];
 }
-export type RunStatus = 'queued' | 'running' | 'cancelling' | 'succeeded' | 'waiting_input' | 'needs_input' | 'failed' | 'cancelled' | 'interrupted';
+export type RunStatus = 'queued' | 'running' | 'cancelling' | 'succeeded' | 'partial' | 'waiting_input' | 'needs_input' | 'failed' | 'cancelled' | 'interrupted';
 export interface SkillDocumentCandidate { id: string; name: string; path: string }
 export interface SkillDocumentSource extends SkillDocumentCandidate { hash: string; bytes: number; readAt: string }
 /** 이번 회차의 조회 정보. 원문·개인 보관 위치·CLI 세션 ID는 공개하지 않는다. */
@@ -17,6 +17,7 @@ export interface SkillContext {
   message: string;
 }
 export interface AutomationItem {
+  metricsService?: 'youtube';
   id: string;
   kind: AutomationKind;
   name: string;
@@ -27,6 +28,7 @@ export interface AutomationItem {
 }
 export interface AutomationCatalog { items: AutomationItem[]; warnings: string[] }
 export interface AutomationRun {
+  trigger?: 'manual' | 'scheduled';
   context?: SkillContext;
   output?: { status: 'saved' | 'failed'; directory: string; message: string };
   execution?: ExecutionSettings;
@@ -47,7 +49,7 @@ export interface AutomationRun {
   turn?: number;
 }
 export const runLabels: Record<RunStatus, string> = {
-  queued: '대기 중', running: '실행 중', cancelling: '취소 중', succeeded: '완료',
+  queued: '대기 중', running: '실행 중', cancelling: '취소 중', succeeded: '완료', partial: '부분 실패',
   waiting_input: '답변 필요', needs_input: '추가 작업 필요', failed: '실패', cancelled: '취소됨', interrupted: '중단됨'
 };
 export function isActive(status: RunStatus) { return ['queued', 'running', 'cancelling'].includes(status); }

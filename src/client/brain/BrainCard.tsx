@@ -2,7 +2,9 @@
 // 카드 틀(열기 · 닫기 전환, 크기 재기, 바깥 inert)은 시안처럼 요소를 직접 다루고, 안쪽 내용은 컨트롤러 상태로 그린다.
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { CSSProperties, RefObject } from 'react';
-import type { GraphNode } from '../../shared/brain';
+import type { BrainSearch, GraphNode } from '../../shared/brain';
+import { mergeSearchResults } from '../../shared/brain-search';
+import { brainApi } from './api';
 import { DashboardVisible } from '../dashboard-state';
 import { fmt } from '../format';
 import { Icon } from '../Icon';
@@ -31,16 +33,41 @@ const Shape = ({ shape, hollow }: { shape: string; hollow?: boolean }) =>
   <span className={hollow ? 'bg-glyph bg-glyph--hollow' : 'bg-glyph'} data-shape={shape} style={vars({ '--c': 'var(--charcoal)' })} aria-hidden="true" />;
 const IconBadge = ({ name }: { name: string }) => <span className="bg-glyph bg-glyph--icon" style={vars({ '--c': 'var(--charcoal)' })} aria-hidden="true"><Icon name={name} /></span>;
 
-/* ── 찾기: 접힌 폴더 안까지 이름 · 경로로 찾는다(위아래 화살표 · Enter · Esc) ── */
+/* ── 빠른 결과를 유지하며 자동 본문 검색을 덧붙인다 ── */
 function Search({ c, onClose }: { c: BrainController; onClose(restoreFocus: boolean): void }) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [body, setBody] = useState<BrainSearch | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const generation = useRef(0);
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLUListElement>(null);
-  const found = useMemo(() => c.search(query), [c, query]);
+  const quick = useMemo(() => c.search(query), [c, query]);
+  const found = useMemo(() => mergeSearchResults(quick.results.map(r => ({ ...r, ancestors: [] })),
+    body?.results.filter(r => c.m.byId.has(r.node.id)) ?? []), [quick, body, c]);
+  const needsRefresh = body?.results.some(r => !c.m.byId.has(r.node.id));
   useEffect(() => { input.current?.focus(); }, []);
   useEffect(() => { list.current?.querySelector(`#bg-opt-${active}`)?.scrollIntoView({ block: 'nearest' }); }, [active]);
-  // 고른 뒤에는 패널 제목으로 포커스를 옮겨, 화면 낭독기가 고른 항목의 설명부터 읽게 한다
+  useEffect(() => {
+    if (!query.trim()) return;
+    const controller = new AbortController();
+    const version = generation.current;
+    const current = () => !controller.signal.aborted && version === generation.current;
+    let indicator: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      indicator = setTimeout(() => { if (current()) setLoading(true); }, 200);
+      brainApi.searchBody(query, controller.signal).then(result => {
+        if (current()) setBody(result);
+      }).catch(() => {
+        if (current()) setError(true);
+      }).finally(() => {
+        clearTimeout(indicator);
+        if (current()) setLoading(false);
+      });
+    }, 300);
+    return () => { controller.abort(); clearTimeout(timer); clearTimeout(indicator); };
+  }, [c, query]);
   const choose = (n: GraphNode) => {
     onClose(false);
     if (c.view === 'table') c.setView('globe');
@@ -50,24 +77,38 @@ function Search({ c, onClose }: { c: BrainController; onClose(restoreFocus: bool
   const shown = !!query.trim();
   return <>
     <label className="search brain__search"><Icon name="search" />
-      <input ref={input} className="input" type="search" placeholder={`문서 · ${c.m.groupName('skills')} · 폴더 찾기`} aria-label="세컨드 브레인에서 찾기" autoComplete="off" spellCheck={false}
+      <input ref={input} className="input" type="search" placeholder="제목 · 설명 · 본문 찾기" aria-label="세컨드 브레인에서 찾기" autoComplete="off" spellCheck={false} maxLength={200}
         role="combobox" aria-expanded={shown} aria-controls="bg-results" aria-autocomplete="list" aria-activedescendant={shown && found.length ? `bg-opt-${active}` : undefined}
-        value={query} onChange={event => { setQuery(event.target.value); setActive(0); }}
+        value={query} onChange={event => { generation.current++; setQuery(event.target.value); setActive(0); setBody(null); setLoading(false); setError(false); }}
         onKeyDown={event => {
           if (event.key === 'ArrowDown' && found.length) { event.preventDefault(); setActive((active + 1) % found.length); }
           else if (event.key === 'ArrowUp' && found.length) { event.preventDefault(); setActive((active - 1 + found.length) % found.length); }
-          else if (event.key === 'Enter') { event.preventDefault(); if (found[active]) choose(found[active]); }
+          else if (event.key === 'Enter') { event.preventDefault(); if (found[active]) choose(found[active].node); }
           else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(true); }
         }} />
     </label>
-    {shown && <ul ref={list} className="bg-results" id="bg-results" role="listbox" aria-label="찾은 항목">
-      {found.length ? found.map((n, i) => <li key={n.id} id={`bg-opt-${i}`} role="option" className="bg-result" aria-selected={i === active}
-        onPointerDown={event => event.preventDefault()} onClick={() => choose(n)}>
-        <Glyph c={c} n={n} /><span className="bg-result__name">{n.name}</span>
-        <span className="bg-result__path">{n.path.split('/').slice(0, -1).join(' / ') || '작업 공간'}</span>
-        {c.visible.has(n.id) ? null : <span className="bg-result__tag">{c.m.orbital.has(n.id) ? '고리' : '접힘'}</span>}
-      </li>) : <li className="bg-result bg-result--empty" role="presentation">찾은 항목이 없습니다</li>}
-    </ul>}
+    {shown && <div className="bg-results">
+      <ul ref={list} className="bg-results__list" id="bg-results" role="listbox" aria-label="찾은 항목">
+        {found.map(({ node: n, match }, i) => <li key={n.id} id={`bg-opt-${i}`} role="option" className="bg-result" aria-selected={i === active}
+          onPointerDown={event => event.preventDefault()} onClick={() => choose(n)}>
+          <Glyph c={c} n={n} /><span className="bg-result__name">{n.name}</span>
+          <span className="bg-result__path">{n.path}</span>
+          {c.visible.has(n.id) ? null : <span className="bg-result__tag">{c.m.orbital.has(n.id) ? '고리' : '접힘'}</span>}
+          {match?.excerpt && <span className="bg-result__excerpt" title={match.sourcePath}>
+            <strong>{match.kind === 'body' ? (match.sourcePath ? '안내 · 본문' : '본문') : '안내'}</strong> {match.excerpt}
+          </span>}
+        </li>)}
+      </ul>
+      <div className="bg-results__status" role="status" aria-live="polite">
+        {!found.length && <p>{body && !body.partial ? '찾은 항목이 없습니다.' : '빠른 검색 결과가 없습니다.'}</p>}
+        {loading && <p><span className="bg-search-spinner" aria-hidden="true" />문서 본문을 검색하고 있습니다…</p>}
+        {error && <p>본문 검색을 완료하지 못했습니다. 빠른 검색 결과는 계속 사용할 수 있습니다. 검색어를 다시 입력해 재시도해 주세요.</p>}
+        {body?.partial && <p>일부 자료는 검색하지 못했습니다{body.skippedFiles ? ` (${body.skippedFiles}개)` : ''}. 크기 제한·접근 권한·스캔 범위를 확인해 주세요.</p>}
+        {needsRefresh && <p>새 자료가 있습니다. 지도를 새로고침하면 선택할 수 있습니다.</p>}
+        {(quick.truncated || body?.truncated) && <p>검색 단계별 최대 100개를 표시합니다. 검색어를 더 구체적으로 입력해 주세요.</p>}
+        {body && <p>{body.partial ? '본문 일부 검색 완료' : '본문 검색 완료'} · {body.searchedFiles ?? 0}개 문서 확인</p>}
+      </div>
+    </div>}
   </>;
 }
 
@@ -85,9 +126,9 @@ function RelList({ c, title, ids, more }: { c: BrainController; title: string; i
     </div>
   </>;
 }
+// 패널 본문: 자르지 않고 담아 칸 안에서 스크롤한다(2026-10-16 — 앞 10줄 · 420자만 보여 끝까지 읽을 수 없었다)
 function excerpt(text: string) {
-  const lines = text.replace(/\r/g, '').split('\n').slice(0, 10).join('\n');
-  return lines.length > 420 ? `${lines.slice(0, 420)}…` : lines;
+  return text.replace(/\r/g, '');
 }
 function Panel({ c, n, panel, onPreview, onClose }: { c: BrainController; n: GraphNode | null; panel: RefObject<HTMLElement | null>; onPreview(n: GraphNode): void; onClose(): void }) {
   if (!n) return <aside ref={panel} className="brain__panel bg-panel" hidden aria-label="선택한 항목" />;
@@ -124,7 +165,7 @@ function Panel({ c, n, panel, onPreview, onClose }: { c: BrainController; n: Gra
       {n.kind === 'folder' && n.parentId !== null && !m.orbital.has(n.id) && (m.kids.get(n.id) ?? []).some(child => !isTucked(child)) &&
         <button type="button" className="btn btn--line btn--sm bg-fold" onClick={() => c.toggleFold(n.id)}>
           <Icon name={folded ? 'unfold' : 'fold'} />{folded ? `하위 ${fmt.num(c.unfoldCount(n))}개 펼치기` : '접기'}</button>}
-      {n.capabilities.preview && (preview?.content !== undefined ? <div className="brain__preview bg-excerpt">{excerpt(preview.content)}</div>
+      {n.capabilities.preview && (preview?.content !== undefined ? <div className="brain__preview bg-excerpt" tabIndex={0} role="region" aria-label="본문 미리보기">{excerpt(preview.content)}</div>
         : preview?.error ? <p className="bg-offline">{preview.error}</p> : <p className="bg-offline" role="status">미리보기를 불러오는 중입니다.</p>)}
       <div className="bg-depth-row"><span className="brain__sub">이웃 범위</span>
         <div className="seg seg--sm bg-depth" role="radiogroup" aria-label="이웃 범위">
@@ -407,12 +448,15 @@ export function BrainCard({ controller: c }: { controller: BrainController }) {
                 <span><IconBadge name="skill" />{skills}</span><span><Shape shape="circle" />문서</span><span><Shape shape="square" />에셋</span><span><IconBadge name="routine" />{routines}</span>
               </span>
             </div>
-            <div className="bg-toggles" role="group" aria-label="보이기">
-              <button type="button" className="bg-toggle" aria-pressed={c.showMd} onClick={() => c.setEdgeKind('markdown')}>
-                <span className="bg-toggle__box" aria-hidden="true" /><span className="bg-legend__line bg-legend__line--md" aria-hidden="true" />문서 링크</button>
-              <span className="bg-toggles__note"><span className="bg-legend__line bg-legend__line--md bg-legend__line--dash" />점선 = 접힌 폴더로 모은 링크</span>
-              <button type="button" className="bg-toggle" aria-pressed={c.showFolder} onClick={() => c.setEdgeKind('folder')}>
-                <span className="bg-toggle__box" aria-hidden="true" /><span className="bg-legend__line" aria-hidden="true" />폴더 구조</button>
+            <div className="bg-toggles">
+              <div className="seg seg--sm bg-edgemode" role="radiogroup" aria-label="연결 보기">
+                {([['all', '전체'], ['folder', '폴더 구조'], ['markdown', '문서 링크']] as const).map(([mode, name]) =>
+                  <button key={mode} type="button" role="radio" aria-checked={c.edgeMode === mode} onClick={() => c.setEdgeMode(mode)}>{name}</button>)}
+              </div>
+              {/* 설명 줄은 늘 세 줄(지금 보기에 없는 선은 흐리게) — 줄 수가 바뀌면 범례가 위로 늘고 줄어 고르기 단추가 움직였다 */}
+              <span className={`bg-toggles__note${c.showMd ? '' : ' is-off'}`}><span className="bg-legend__line bg-legend__line--md" />문서 링크{c.edgeMode === 'markdown' && ' · 링크가 닿는 항목만'}</span>
+              <span className={`bg-toggles__note${c.showMd ? '' : ' is-off'}`}><span className="bg-legend__line bg-legend__line--md bg-legend__line--dash" />점선 = 접힌 폴더로 모은 링크</span>
+              <span className={`bg-toggles__note${c.showFolder ? '' : ' is-off'}`}><span className={`bg-legend__line${c.edgeMode === 'folder' ? ' is-solid' : ''}`} />폴더 구조{c.edgeMode === 'all' && ' · 옅은 선'}</span>
             </div>
             <p className="bg-stat">{c.stat}</p>
           </div>
