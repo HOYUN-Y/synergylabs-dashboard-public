@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { captureProcess } from '../platform/process.js';
+import { processEnvironment } from '../platform/commands.js';
 import { randomUUID } from 'node:crypto';
 import { mkdir, stat, writeFile, rename, unlink } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -11,9 +11,10 @@ export class YouTubeMetricsError extends Error {
 }
 export async function listYouTubeVideos(): Promise<string[]> {
   try {
-    const { stdout } = await promisify(execFile)('yt-dlp', ['--ignore-config', '--no-cache-dir', '--abort-on-error',
+    const { stdout, code } = await captureProcess('yt-dlp', ['--ignore-config', '--no-cache-dir', '--abort-on-error',
       '--flat-playlist', '--skip-download', '--dump-single-json', `https://www.youtube.com/channel/${YOUTUBE_CHANNEL_ID}/videos`],
-    { timeout: 60000, maxBuffer: 8 * 1024 * 1024, env: { PATH: process.env.PATH, LANG: 'en_US.UTF-8' } });
+    { timeout: 60000, maxBuffer: 8 * 1024 * 1024, env: { ...processEnvironment(), LANG: 'en_US.UTF-8' } });
+    if (code !== 0) throw new Error();
     const data = JSON.parse(stdout);
     if (!Array.isArray(data.entries)) throw new Error();
     return data.entries.map((v: { id?: unknown }) => v?.id);

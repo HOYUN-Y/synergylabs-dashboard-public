@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { captureProcess } from '../platform/process.js';
 import type { ExecutionOptions, ExecutionSettings } from '../../shared/automation.js';
 import { claudeReadiness, cliExecutable, localProcessEnvironment } from './catalog.js';
 import { AutomationError } from './errors.js';
@@ -12,10 +12,10 @@ export function executionShape(value: unknown): value is ExecutionSettings {
     && /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,99}$/.test(v.model)
     && ['default', 'minimal', 'none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'].includes(v.effort);
 }
-function inspect(command: string, args: string[]) {
-  return new Promise<string>((resolve, reject) => execFile(command, args, {
-    env: localProcessEnvironment(), timeout: 5000, maxBuffer: 2 * 1024 * 1024, encoding: 'utf8'
-  }, (error, stdout) => error ? reject(new AutomationError('NOT_READY')) : resolve(stdout)));
+async function inspect(command: string, args: string[]) {
+  const result = await captureProcess(command, args, { env: localProcessEnvironment(), timeout: 10000, maxBuffer: 2 * 1024 * 1024 });
+  if (result.code !== 0) throw new AutomationError('NOT_READY');
+  return result.stdout;
 }
 export function codexModels(text: string): ExecutionOptions['providers'][number]['models'] {
   const data = JSON.parse(text);

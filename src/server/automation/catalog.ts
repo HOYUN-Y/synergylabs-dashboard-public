@@ -1,11 +1,10 @@
 import { scanWorkspace } from '../workspace-scan.js';
 import type { WorkspaceInventory } from '../workspace-scan.js';
-import { access, lstat, readFile, realpath, stat } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { homedir } from 'node:os';
+import { lstat, readFile, realpath, stat } from 'node:fs/promises';
+import { processEnvironment, resolveCommand } from '../platform/commands.js';
+import { captureProcess } from '../platform/process.js';
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type { AutomationCatalog, AutomationItem } from '../../shared/automation.js';
 import { AutomationError } from './errors.js';
 
@@ -36,11 +35,8 @@ export async function checkedFile(root: string, file: string, limit = 65536) {
   } catch { throw new AutomationError('PATH_DENIED'); }
 }
 export async function cliExecutable(name: 'claude' | 'codex') {
-  for (const directory of [...(process.env.PATH ?? '').split(delimiter), join(homedir(), '.local', 'bin')].filter(Boolean)) {
-    const file = join(directory, name);
-    try { await access(file, constants.X_OK); if ((await stat(file)).isFile()) return file; } catch { /* 다음 PATH 후보 확인 */ }
-  }
-  return null;
+  const target = resolveCommand(name);
+  return target ? target.prefixArgs[0] ?? target.command : null;
 }
 export const claudeExecutable = () => cliExecutable('claude');
 export async function ghostConfiguration(root: string, directory: string, env: NodeJS.ProcessEnv = process.env) {
@@ -54,22 +50,20 @@ export async function ghostConfiguration(root: string, directory: string, env: N
 }
 export function localProcessEnvironment() {
   // CLI 로그인과 루틴 자체 환경 파일을 사용하며 서버의 다른 서비스 비밀값은 전달하지 않는다.
-  return Object.fromEntries(['HOME', 'PATH', 'TMPDIR', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'SHELL', 'TERM', 'XDG_CONFIG_HOME']
-    .flatMap(key => process.env[key] === undefined ? [] : [[key, process.env[key]!]]));
+  return processEnvironment();
 }
 export async function claudeReadiness(): Promise<string | null> {
   const executable = await claudeExecutable();
   if (!executable) return 'Claude CLI 설치와 실행 권한을 확인해 주세요.';
-  return new Promise(resolve => {
-    execFile(executable, ['auth', 'status', '--json'], { encoding: 'utf8', timeout: 5000, maxBuffer: 65536, env: localProcessEnvironment() }, (error, stdout) => {
-      try {
+  try {
+        const help = await captureProcess(executable, ['--help'], { timeout: 10000, maxBuffer: 65536, env: localProcessEnvironment() });
+        if (help.code !== 0 || !['--safe-mode', '--restricted', '--strict-mcp-config'].every(flag => help.stdout.includes(flag))) return '설치된 Claude CLI가 필요한 격리 옵션을 지원하지 않습니다. 호환 버전을 확인해 주세요.';
+        const { code, stdout } = await captureProcess(executable, ['auth', 'status', '--json'], { timeout: 10000, maxBuffer: 65536, env: localProcessEnvironment() });
         const status = JSON.parse(stdout);
-        if (!error && status.loggedIn === true) { resolve(null); return; }
-        if (status.loggedIn === false) { resolve('Claude CLI 로그인이 필요합니다. 터미널에서 claude auth login 후 목록을 새로고침해 주세요.'); return; }
-      } catch { /* 원문 인증 응답과 stderr는 노출하지 않는다. */ }
-      resolve('Claude CLI 로그인 상태를 확인하지 못했습니다. CLI 버전과 로그인을 확인해 주세요.');
-    });
-  });
+        if (code === 0 && status.loggedIn === true) return null;
+        if (status.loggedIn === false) return 'Claude CLI 로그인이 필요합니다. 터미널에서 claude auth login 후 목록을 새로고침해 주세요.';
+  } catch { /* 원문 인증 응답과 stderr는 노출하지 않는다. */ }
+  return 'Claude CLI 로그인 상태를 확인하지 못했습니다. CLI 버전과 로그인을 확인해 주세요.';
 }
 function metadata(text: string, fallback: string) {
   const front = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? '';
@@ -97,8 +91,8 @@ export async function discover(root: string, checkClaude = claudeReadiness, inve
     try {
       const file = await checkedFile(root, join(root, candidate.path));
       const text = await readFile(file, 'utf8');
-      const path = relative(root, file);
-      const folder = dirname(path).split(sep).at(-1)!;
+      const path = relative(root, file).split(sep).join('/');
+      const folder = path.split('/').at(-2)!;
       let adapter: DiscoveredItem['adapter'] = null;
       let info = metadata(text, folder);
       let reason: string | null = '실행 설정 필요: 등록되지 않은 프로그램 루틴입니다.';

@@ -1,5 +1,5 @@
-import { lstat, readdir, open } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
+import { openRegular } from '../platform/storage.js';
 import { isAbsolute, join } from 'node:path';
 import type { GhostSnapshot } from './ghost.js';
 import { GHOST_FILTER } from '../../shared/metrics.js';
@@ -59,7 +59,7 @@ export class GhostMetricsReader {
           if (!file.isFile() || file.isSymbolicLink()) { invalidFiles++; continue; }
           try {
             const path = join(folder, file.name);
-            const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+            const handle = await openRegular(path);
             let raw: string;
             try { if ((await handle.stat()).size > 65536) throw new Error(); raw = await handle.readFile('utf8'); }
             finally { await handle.close(); }

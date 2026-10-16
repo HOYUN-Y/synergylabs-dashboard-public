@@ -1,4 +1,5 @@
-import { spawn } from 'node:child_process';
+import { spawnManaged, killManaged } from '../platform/process.js';
+import { resolveCommand } from '../platform/commands.js';
 import { readFile, realpath } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import type { DiscoveredItem } from './catalog.js';
@@ -16,15 +17,15 @@ export type TaskRunner = (task: Task, signal: AbortSignal, store: AutomationStor
 
 export const runProcess: ProcessRunner = (spec, signal) => new Promise((resolve, reject) => {
   if (signal.aborted) { reject(new AutomationError('CANCELLED')); return; }
-  const child = spawn(spec.command, spec.args, { cwd: spec.cwd, env: { ...localProcessEnvironment(), ...(spec.ghostEnv ? { API_URL: spec.ghostEnv.API_URL, CONTENT_API_KEY: spec.ghostEnv.CONTENT_API_KEY } : {}) }, shell: false,
-    detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+  if (!resolveCommand(spec.command)) { reject(new AutomationError('CLI_MISSING')); return; }
+  const child = spawnManaged(spec.command, spec.args, { cwd: spec.cwd, env: { ...localProcessEnvironment(), ...(spec.ghostEnv ? { API_URL: spec.ghostEnv.API_URL, CONTENT_API_KEY: spec.ghostEnv.CONTENT_API_KEY } : {}) } });
   let failure: AutomationError | null = null;
   let output = '';
   let bytes = 0;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   const kill = (type: NodeJS.Signals) => {
     if (child.exitCode !== null || child.signalCode !== null) return;
-    try { if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, type); else child.kill(type); } catch { /* 이미 종료된 프로세스 */ }
+    killManaged(child, type);
   };
   const stop = (error: AutomationError) => {
     if (failure) return;

@@ -1,5 +1,5 @@
-import { chmod, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
+import { appDataDirectory, privateDirectory } from '../platform/storage.js';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Dirent } from 'node:fs';
@@ -23,7 +23,7 @@ export interface StoredRun extends AutomationRun {
 export const validArtifactName = (name: unknown): name is string => typeof name === 'string'
   && /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}\.(md|txt|html|css|js|json|svg|png|jpg|jpeg|pptx|pdf)$/.test(name);
 export class AutomationStore {
-  constructor(public directory = join(homedir(), 'Library', 'Application Support', 'SynergyLabs Dashboard')) {}
+  constructor(public directory = appDataDirectory()) {}
   runDirectory(id: string) {
     if (!/^[a-f0-9-]{36}$/.test(id)) throw new AutomationError('NOT_FOUND');
     return join(this.directory, 'automation', 'runs', id);
@@ -37,8 +37,7 @@ export class AutomationStore {
     finally { await unlink(temp).catch(() => {}); }
   }
   private async prepare(directory: string) {
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    await chmod(directory, 0o700);
+    await privateDirectory(directory);
   }
   async settings(): Promise<{ workspace: string; outputDirectory?: string }> {
     try {

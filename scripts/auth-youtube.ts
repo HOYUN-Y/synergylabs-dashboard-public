@@ -1,5 +1,4 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { openBrowser } from '../src/server/platform/desktop.js';
 import { resolveAuthClient, requireAuthClient, AuthSettingsError } from '../src/server/auth-settings.js';
 import { beginYouTubeOAuth, YouTubeOAuth } from '../src/server/metrics/youtube-auth.js';
 import { YouTubeAuthError, YouTubeAuthStore } from '../src/server/metrics/youtube-auth-store.js';
@@ -22,7 +21,7 @@ try {
     process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
     try {
       console.info('브라우저에서 채널 소유자가 직접 로그인하고 읽기 권한을 승인해 주세요. 인증 대기는 5분입니다.');
-      try { await promisify(execFile)('/usr/bin/open', [attempt.url], { timeout: 10000 }); }
+      try { await openBrowser(attempt.url); }
       catch { attempt.cancel(); throw new YouTubeAuthError('BROWSER_FAILED'); }
       await attempt.done;
       console.info('대상 채널 확인과 키체인 저장이 완료됐습니다. 이후 수집은 인증을 자동 갱신합니다.');

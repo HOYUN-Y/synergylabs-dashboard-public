@@ -428,7 +428,7 @@ export class BrainController {
       error => { this.previews.set(n.id, { error: error instanceof Error ? error.message : '미리보기를 읽지 못했습니다.' }); this.emit(); });
   }
   reveal(n: GraphNode) {
-    brainApi.reveal(n.id).then(() => toast('Finder에서 위치를 열었습니다'), error => toast(error instanceof Error ? error.message : 'Finder를 열지 못했습니다.', 'alert'));
+    brainApi.reveal(n.id).then(() => toast('파일 위치를 열었습니다'), error => toast(error instanceof Error ? error.message : '파일 위치를 열지 못했습니다.', 'alert'));
   }
   copyPath(n: GraphNode) {
     const text = n.path ? `${this.m.graph.root}/${n.path}` : this.m.graph.root;

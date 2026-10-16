@@ -1,11 +1,10 @@
-import { mkdir, open, writeFile, rename, unlink, readdir } from 'node:fs/promises';
-import { constants } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdir, writeFile, rename, unlink, readdir } from 'node:fs/promises';
+import { appDataDirectory, privateDirectory, openRegular } from '../platform/storage.js';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { CollectionAttempt, CollectionState, MetricService } from '../../shared/metrics-collection.js';
 
-export const collectionDirectory = () => join(homedir(), 'Library', 'Application Support', 'SynergyLabs Dashboard', 'metrics-collection');
+export const collectionDirectory = () => join(appDataDirectory(), 'metrics-collection');
 export class CollectionError extends Error {
   constructor(public code: string) { super(code); }
 }
@@ -14,9 +13,9 @@ export const collectionAlive = (pid: number) => {
 };
 export class CollectionStore {
   constructor(public directory = collectionDirectory()) {}
-  async prepare() { await mkdir(this.directory, { recursive: true, mode: 0o700 }); }
+  async prepare() { await privateDirectory(this.directory); }
   private async json(file: string): Promise<unknown> {
-    const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const handle = await openRegular(file);
     try {
       const info = await handle.stat();
       if (!info.isFile() || info.size > 8192) throw new CollectionError('STORAGE_FAILED');

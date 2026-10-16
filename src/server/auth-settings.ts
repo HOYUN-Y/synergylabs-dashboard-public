@@ -1,4 +1,5 @@
-import { openSync, closeSync, fstatSync, readSync, constants } from 'node:fs';
+import { closeSync, fstatSync, readSync } from 'node:fs';
+import { openRegularSync } from './platform/storage.js';
 import { basename, isAbsolute, join } from 'node:path';
 import { envDirectory } from './local-env.js';
 import type { AuthClientStatus } from '../shared/auth-settings.js';
@@ -19,7 +20,7 @@ const record = (value: unknown): Record<string, unknown> => {
 };
 // 제한 크기만 읽어, stat 이후 커진 파일도 메모리에 전부 읽지 않는다.
 function readJson(file: string): unknown {
-  const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const fd = openRegularSync(file);
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.size > 65536) throw new Error();
