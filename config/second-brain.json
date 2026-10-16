@@ -1,0 +1,86 @@
+{
+  "_guide": {
+    "작업 공간": "실제 최상위 절대경로는 대시보드 설정 → 작업 공간에서 지정합니다. 이 파일은 그 안의 분류와 상대경로를 정의하며 인증 설정이나 env 경로는 다루지 않습니다.",
+    "routerFile": "작업 공간 최상위 라우터 파일명입니다. 예: AGENTS.md. 분야 안내 파일은 이 JSON 대신 라우터의 링크로 연결합니다.",
+    "fields": "분야마다 id(고유 식별자), name(화면 이름), folder(작업 공간 기준 상대경로)를 둡니다. 폴더 이름이 다르면 folder를 실제 이름과 맞추고 라우터 링크도 함께 확인합니다. 파일을 이동시키는 기능은 아닙니다.",
+    "스킬과 루틴": "skills와 routines의 folder도 같은 상대경로 기준입니다. name은 화면 표시명이며 실제 폴더명과 달라도 됩니다.",
+    "기억": "memory.areaId는 fields 중 기억 분야의 id를 가리킵니다. 실제 기억 폴더는 해당 분야의 folder를 따릅니다.",
+    "색과 구분": "color와 dark는 #rrggbb, ramp는 진한 색부터 4개입니다. ring은 분야 노드의 표시 구분이며 기존 asset/doc 값을 참고합니다. other는 지정 분야에 속하지 않는 자료의 표시 설정입니다.",
+    "주의": "id 변경은 기억·분야 연결에 영향을 줄 수 있어 단순 표시명 변경에는 name을 사용합니다. 경로에는 절대경로를 넣지 말고 JSON 마지막 항목 뒤 쉼표나 // 주석을 넣지 마세요.",
+    "가이드": "작업 공간은 대시보드 설정에서 지정하고 분류·상대경로는 이 파일의 안내에 따라 수정합니다."
+  },
+  "_note": "세컨드 브레인 지도의 분류 설정. 경로는 모두 작업 공간 루트 기준이다. 분야 안내 문서는 여기에 적지 않는다: 라우터(routerFile)가 각 폴더 바로 아래에서 링크하는 첫 .md를 그 영역의 안내 문서로 본다. 분야 색: color(#rrggbb)와 ramp(진하기 4단계, 진함 → 옅음, 흰 바탕에서 대비를 확인한 값). ramp를 빼면 color에서 근사로 만든다. dark(#rrggbb)는 검은 바탕의 세컨드 브레인 구체에서 쓰는 색이다. 빼면 color를 쓰고, 새로 고를 때는 다른 분야 · 스킬 · 루틴 색과 구분되는지 확인한다. 스킬 · 루틴 색은 화면 토큰(src/client/design/brain.css)에 있다. 읽는 곳 src/server/brain/config.ts.",
+  "routerFile": "AGENTS.md",
+  "memory": {
+    "areaId": "memory"
+  },
+  "skills": {
+    "name": "스킬",
+    "folder": "스킬"
+  },
+  "fields": [
+    {
+      "id": "content",
+      "name": "콘텐츠",
+      "folder": "콘텐츠",
+      "color": "#2a78d6",
+      "ramp": [
+        "#0a61bd",
+        "#2a78d6",
+        "#4d90e6",
+        "#70a9f3"
+      ],
+      "dark": "#67b7ee"
+    },
+    {
+      "id": "development",
+      "name": "개발·운영",
+      "folder": "개발운영",
+      "color": "#199e70",
+      "ramp": [
+        "#046c4b",
+        "#07855d",
+        "#199e70",
+        "#4db489"
+      ],
+      "dark": "#01e9b2"
+    },
+    {
+      "id": "assets",
+      "name": "브랜드에셋",
+      "folder": "브랜드에셋",
+      "ring": "asset",
+      "color": "#b83a86",
+      "ramp": [
+        "#9e1f70",
+        "#b83a86",
+        "#cc5a9b",
+        "#dc7ab0"
+      ],
+      "dark": "#9e7ded"
+    },
+    {
+      "id": "memory",
+      "name": "기억",
+      "folder": "memory",
+      "ring": "doc",
+      "color": "#7c3aed",
+      "dark": "#e8d56a"
+    }
+  ],
+  "routines": {
+    "name": "루틴",
+    "folder": "루틴"
+  },
+  "other": {
+    "name": "기타",
+    "color": "#79716b",
+    "ramp": [
+      "#57534d",
+      "#79716b",
+      "#948d89",
+      "#aaa29d"
+    ],
+    "dark": "#aca49e"
+  }
+}

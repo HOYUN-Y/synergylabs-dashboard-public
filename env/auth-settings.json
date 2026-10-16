@@ -1,0 +1,12 @@
+{
+  "_note": "인증 JSON은 env/에 별도로 보관하고 아래에는 파일명만 입력합니다. 비밀값은 이 파일에 넣지 않습니다.",
+  "_guide": {
+    "googleClientFile": "Calendar·Gmail용 데스크톱 OAuth JSON 파일명. null이면 기존 Google 환경변수를 사용합니다.",
+    "youtubeClientFile": "YouTube용 데스크톱 OAuth JSON 파일명. null이면 기존 기본 파일 경로를 사용합니다.",
+    "경로": "env/ 안의 파일명만 사용합니다. 절대경로·하위 폴더 경로는 지원하지 않습니다.",
+    "배포": "배포 시 두 파일명은 null로 제공합니다. 사용자의 로컬 설정 원본은 덮어쓰지 않습니다."
+  },
+  "version": 1,
+  "googleClientFile": null,
+  "youtubeClientFile": null
+}

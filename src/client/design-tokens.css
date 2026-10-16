@@ -1,0 +1,74 @@
+/* SynergyLabs 대시보드 — 디자인 토큰
+   기준: 스킬 chatdaeri-v5의 tokens.css (8색 · 서체 · 모서리 · 간격)를 그대로 쓰고,
+   웹 화면에 필요한 크기 · 떠 있는 면의 그림자 · 데이터 색 단계만 덧붙였다.
+   글꼴은 chatdaeri-v5와 같은 CDN을 쓴다. 앱에 옮길 때는 로컬 글꼴 파일로 바꾼다(README 참고). */
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard-dynamic-subset.min.css");
+@import url("https://api.fontshare.com/v2/css?f[]=general-sans@500,600,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Geist+Mono:wght@500;600&display=swap");
+
+:root {
+  color-scheme: light;
+
+  /* ── 색: chatdaeri-v5 8색만 사용 ── */
+  --paper:    #ffffff;  /* 페이지 바탕 · 카드 안의 한 단계 위 면 */
+  --bone:     #fafaf9;  /* 카드 면 */
+  --pebble:   #efeeed;  /* hairline · 중첩 면 · 빈 칸 */
+  --ink:      #1c1917;  /* 주 글씨 · 주 버튼 · 어두운 면 */
+  --charcoal: #57534d;  /* 보조 글씨 */
+  --stone:    #79716b;  /* 캡션 · 메타 */
+  --ash:      #948d89;  /* 비활성 · 지난 기간 막대 */
+  --accent:   #FF7E5F;  /* 오렌지 — 면으로만. 글자색 금지 */
+  /* 예외(사용자 요청): 메일 제목 글자에만 쓰는 진한 오렌지. accent와 같은 색상각, 흰 바탕 대비 4.8:1 */
+  --accent-text: #bf4e33;
+
+  /* ── 데이터 색(예외): 오렌지 한 색상의 명도 단계. 캘린더 잔디에만 쓴다 ──
+     OKLCH 명도 0.91 → 0.83 → 0.74(accent) → 0.64. 단계 간격 ≥ 0.06, 색상 차 1° (dataviz 검사 통과) */
+  --seq-1: #fed5cb;
+  --seq-2: #ffaf9b;
+  --seq-3: var(--accent);
+  --seq-4: #d86145;
+
+  /* ── 서체: 영문 글꼴 → Pretendard 순서. 영문 글꼴에 한글이 없어 한글은 자동으로 Pretendard ── */
+  --font-display: "General Sans", "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  --font-body: "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "Pretendard", monospace;
+
+  /* ── 웹 타입 스케일: 최소 12px ── */
+  --fs-figure: 30px;     /* 지표 숫자 */
+  --fs-heading: 20px;    /* 대화상자 제목 */
+  --fs-title: 15px;      /* 카드 제목 */
+  --fs-body: 14px;       /* 본문 */
+  --fs-small: 13px;      /* 목록 · 버튼 */
+  --fs-caption: 12px;    /* 메타 · 시각 · 범례 */
+
+  /* ── 간격 ── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px;
+
+  /* ── 모서리: 알약 · 카드 16 · 작은 면 8 · 체크 4 ── */
+  --r-pill: 99px;
+  --r-card: 16px;
+  --r-sm: 8px;
+  --r-xs: 4px;
+
+  /* ── 그림자: 카드에는 쓰지 않는다. 버튼과 떠 있는 면(팝오버 · 대화상자 · 토스트)에만 ── */
+  --sh-chip: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  --sh-float: 0 4px 12px 0 rgba(0, 0, 0, 0.15);   /* chatdaeri-v5 --sh-md와 같은 값 */
+  --scrim: rgba(28, 25, 23, 0.28);                /* 대화상자 뒤 가림막(ink 기반) */
+
+  /* ── 배치 ── */
+  --header-h: 60px;
+  --gap: 24px;           /* 같은 열에서 위아래 영역 사이 */
+  --col-gap: 32px;       /* 열 사이 — 상자가 없으므로 내용끼리 숨 쉴 틈 */
+  --pad: 24px;
+  --card-top: 14px;      /* 영역 위 오렌지 선과 제목 사이 */
+  --card-pad: 18px;      /* 떠 있는 면(세컨드 브레인 크게 보기)의 안쪽 여백 */
+  /* 높이 고정 영역. 지표(175) + 캘린더 = 이메일 + 스킬(252)이 되게 맞춰 두 열의 세 번째 선을 같은 높이에 둔다 */
+  --h-cal: 308px;        /* 캘린더: 일정이 많은 날은 목록 안에서 스크롤 */
+  --h-mail: 231px;       /* 이메일: 2통 반이 보이고(끝은 흐리게) 나머지는 스크롤 */
+  --row-bottom: 166px;   /* 좁은 화면에서 맨 아래 카드(다른 대시보드 · 루틴) 최소 높이 */
+
+  /* ── 움직임 ── */
+  --ease: cubic-bezier(0.2, 0.8, 0.3, 1);
+  --dur: 0.18s;
+}

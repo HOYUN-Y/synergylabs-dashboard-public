@@ -1,0 +1,169 @@
+/* 앱 전용 보충 — 시안 CSS(base · dashboard · popups · assets · dark) 뒤에 불러온다.
+   시안에 없던 것(시작 준비 칩 · 지표 수집 구역 · 결과 저장 알림 줄 · 실행 기록 창 · 실제 미리보기 · 직접 복사 창)과
+   React로 옮기며 필요한 연결부만 둔다. 색 · 모서리 · 간격은 토큰만 쓴다. */
+
+/* ── 본문으로 이동 ── */
+.skip-link {
+  position: fixed; top: -60px; left: 16px; z-index: 130; padding: 8px 16px; border-radius: var(--r-sm);
+  background: var(--ink); color: var(--paper); font-size: var(--fs-small); text-decoration: none;
+}
+.skip-link:focus { top: 12px; }
+main:focus, h1:focus { outline: none; }
+
+/* ── 공통 연결부 ── */
+.reveal[aria-expanded="true"] { opacity: 1; }             /* 팝오버를 연 버튼은 계속 보인다 */
+.popover:focus { outline: none; }
+.notice__text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.notice .btn { margin-left: 4px; vertical-align: middle; }
+a.state-chip { text-decoration: none; }
+button.state-chip { cursor: pointer; }
+.card-skel { display: grid; gap: 14px; padding-top: 4px; }
+.card-skel > div { display: grid; gap: 6px; }
+.page-missing { max-width: 480px; margin: 80px auto; padding: 0 var(--pad); }
+
+/* ── 머리줄: 시작 준비 칩(문제 있을 때만) ── */
+.startup-chip { margin-right: var(--sp-2); }
+.popover--startup { width: 340px; }
+.startup__summary { margin-bottom: var(--sp-3); }
+.startup__list { display: grid; gap: 2px; }
+.startup__list li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--pebble); }
+.startup__list li:first-child { border-top: 0; }
+.startup__list li[data-state="ready"] { color: var(--charcoal); }
+.startup__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.startup__text strong { font: 600 var(--fs-small)/1.4 var(--font-body); }
+.startup__list li[data-state="connection_required"] .notify__icon,
+.startup__list li[data-state="error"] .notify__icon { color: var(--ink); background: var(--seq-1); }
+
+/* ── 지표: 아래 줄의 다시 시도 · 상세의 수집 구역(지금 수집 · 자동 수집 상태) ── */
+.metric__retry.btn { margin-left: auto; height: 22px; padding: 0 10px; }
+.metric__switch .metric__dots { display: flex; }
+.metric .empty { padding: var(--sp-2) 0; gap: 4px; justify-content: flex-start; }
+.metric .empty__icon { width: 32px; height: 32px; }
+.metric .empty p { max-width: none; }
+.metric-detail .popover__head .caption { margin-left: auto; }
+.metric-detail .popover__head h2 { flex: none; }
+.metric-detail .popover__foot > a { margin-right: auto; }
+.metric-detail__table a { color: inherit; text-decoration: none; }
+.metric-detail__table a:hover { text-decoration: underline; }
+.metric-detail__table td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metric-detail__none { color: var(--ash); }
+.metric-detail .notice + .notice, .metric-detail .caption + .notice { margin-top: 0; }
+.metric-collect { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--pebble); }
+.metric-collect__facts { display: grid; gap: 6px; }
+.metric-collect__facts > div { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-small); }
+.metric-collect__facts dt { display: inline-flex; align-items: center; gap: 6px; color: var(--stone); font-size: var(--fs-caption); }
+.metric-collect__facts dd { color: var(--ink); font-weight: 500; text-align: right; }
+.metric-collect__bar { display: block; }
+.is-busy.btn .i { animation: spin 0.9s linear infinite; }
+
+/* ── 캘린더: 이전 결과 표시 ── */
+.cal__stale { display: flex; align-items: center; gap: 6px; padding-top: 6px; flex: none; }
+.cal__stale .dot { width: 6px; height: 6px; }
+.cal .empty { flex: 1; }
+/* 잔디 오른쪽 주차별 막대(시안에 없음 · 2026-10-16 사용자 결정): 각 주 줄과 같은 높이에 그 주 일정 수. 길이는 그달 가장 많은 주 기준,
+   남는 폭(데스크톱 1024px 약 65px ~ 1920px 약 200px)에 맞춰 줄고 140px를 넘지 않는다 */
+.cal__week, .cal__grid { grid-template-columns: 40px repeat(7, 18px) minmax(0, 140px); }
+.cal__week .cal__wkbar-head { margin-left: 8px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cal__wkbar { display: flex; align-items: center; gap: 6px; min-width: 0; margin-left: 8px; }
+.cal__wkbar i { flex: 1 1 auto; min-width: 0; height: 6px; border-radius: 3px; background: linear-gradient(var(--seq-3), var(--seq-3)) no-repeat 0 0 / var(--w, 0%) 100%, var(--pebble); }
+.cal__wkbar span { flex: none; min-width: 2ch; font-size: var(--fs-caption); color: var(--stone); text-align: right; }
+.cal__wkbar.is-selected i { background: linear-gradient(var(--seq-4), var(--seq-4)) no-repeat 0 0 / var(--w, 0%) 100%, var(--pebble); }
+.cal__wkbar.is-selected span { color: var(--ink); }
+/* 첫 조회부터 실패: 잔디 아래 남은 높이(약 100px)에 안내를 넣는다. 아이콘을 빼고 간격을 줄여 찌그러지지 않게 하고,
+   다시 시도 단추가 늘 보이도록 문구는 두 줄까지(전체는 올렸을 때). 그래도 넘치면(글자 확대 등) 그 안에서 스크롤 */
+.cal__agenda .empty { justify-content: flex-start; gap: 2px; padding: 4px 0 0; overflow-y: auto; }
+.cal__agenda .empty > * { flex: none; }
+.cal__agenda .empty__icon { display: none; }
+.cal__agenda .empty p { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.cal__agenda .empty .btn { margin-top: 6px; }
+
+/* ── 스킬 · 루틴 ── */
+.search .search__tool { position: absolute; right: 3px; }
+.search .input:not(:placeholder-shown) ~ .search__tool { display: none; }
+.tile__state > .i { width: 13px; height: 13px; stroke-width: 2; flex: none; }
+.routines .empty { flex: 1; }
+.dialog--history { width: min(520px, calc(100vw - 32px)); }
+.dialog--history .settings__history { margin-top: 0; }
+
+/* ── 실행 결과 · 대화: 결과 저장 알림 줄과 결과 파일 ── */
+.output-status .notice__text { display: grid; gap: 4px; justify-items: start; }
+.output-status__path { max-width: 100%; color: var(--stone); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.output-status .btn { margin: 4px 0 0; }
+.run .chat__files { margin-top: 0; }
+.dialog--run .dialog__foot .caption { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.chat__msg .notice { margin-top: 10px; }
+.chat__msg--user .sr-only { position: absolute; }
+.chat .dialog__foot .notice { width: 100%; }
+.chat .dialog__head .state-chip { flex: none; }
+/* 문서 조회(시안에 없음 · 2026-10-16 B안): 실행 중 단계 한 줄 · 동명 문서 후보 단추 · 참고 문서 목록 · 현재 원본 미리보기 */
+.chat__step { margin-top: 2px; font-size: var(--fs-caption); color: var(--stone); }
+.ctx-picks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; margin-top: 10px; }   /* 긴 경로도 말풍선 안에서 말줄임 */
+.ctx-picks li { display: flex; align-items: center; gap: 2px; }
+.ctx-pick { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 6px 10px; border: 0; border-radius: var(--r-sm);
+  background: var(--paper); box-shadow: inset 0 0 0 1px var(--pebble); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.ctx-pick:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ash); }
+.ctx-pick:disabled { background: transparent; color: var(--charcoal); cursor: default; }
+.is-chosen > .ctx-pick { box-shadow: inset 0 0 0 1px var(--ink); color: var(--ink); }
+.ctx-pick__no { flex: none; min-width: 2ch; font-size: var(--fs-caption); color: var(--stone); text-align: right; }
+.ctx-pick__text, .ctx-refs__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.ctx-pick__name, .ctx-pick__path, .ctx-refs__name, .ctx-refs__path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-pick__name { font-weight: 600; }
+.ctx-pick__path, .ctx-refs__path { font-size: var(--fs-caption); line-height: 1.4; color: var(--stone); }
+.ctx-refs { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--pebble); }
+.ctx-refs__head { font: 600 var(--fs-caption)/1.3 var(--font-body); color: var(--charcoal); }
+.ctx-refs ul { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin-top: 4px; }
+.ctx-refs li { display: flex; align-items: center; gap: 8px; }
+.ctx-refs li > .i { flex: none; color: var(--stone); }
+.ctx-refs time { flex: none; white-space: nowrap; }
+.run .ctx-refs { margin-top: 0; }
+.ctx-preview .dialog__head h2 { flex: 0 1 auto; }            /* '현재 원본'을 제목 바로 옆에 둔다 */
+.ctx-preview__kind { flex: none; margin-right: auto; }
+.ctx-preview .bg-preview > .notice { margin-bottom: var(--sp-3); }
+
+/* ── 설정 ── */
+.settings__fieldset { display: flex; flex-direction: column; gap: 18px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings__section--inner { gap: 14px; }
+.settings__section .notice { max-width: 560px; }
+.settings__status-tools .btn { white-space: nowrap; }
+.settings__actions .caption { align-self: center; }
+.settings__history button > span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.settings__history .caption { white-space: nowrap; }
+/* Google 클라이언트 설정 줄(캘린더 · 이메일 탭, 읽기 전용): 시안의 '찾은 항목' 줄 모양. 좁으면 설명이 다음 줄로 내려간다 */
+.client-config__row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 6px; font-size: var(--fs-small); }
+.client-config__name { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.client-config__row .icon-btn { margin: -4px -4px -4px 0; }
+.client-config > .field-help, .client-config > .notice { margin-top: 8px; }
+.exec__name { max-width: 160px; }
+/* 실행 설정 판: 자리 높이는 SkillExecutionSettings가 모델 줄이 가장 많은 도구에 맞춰 잡는다(Claude · Codex를 바꿔도 팝오버가 튀지 않게).
+   모델 이름 칸은 가장 긴 이름에 맞춰 72~120px(시안의 72px 고정은 'GPT-5.6-Terra' 같은 Codex 이름을 잘랐다),
+   effort 이름은 줄바꿈하지 않는다(Codex 7칸에서 medium이 두 줄로 꺾였다) */
+.exec__area { display: flex; flex-direction: column; gap: 14px; }
+.exec__matrix { grid-template-columns: fit-content(120px) repeat(var(--cols), minmax(0, 1fr)); }
+.exec__rowhead { min-width: 72px; }
+.exec__colhead { white-space: nowrap; }
+
+/* ── 에셋 라이브러리: 실제 미리보기(이미지 · 애니메이션 · 글꼴) · 경고 · 직접 복사 창 ── */
+.pv--image img { width: 100%; height: 100%; object-fit: contain; }
+.pv--vertical img { object-fit: contain; }
+.pv__skel { position: absolute; inset: 0; border-radius: 0; }
+.pv__frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; pointer-events: none; background: var(--paper); }
+.pv__error { position: absolute; left: 8px; right: 8px; bottom: 8px; padding: 6px 8px; border-radius: var(--r-xs); background: var(--paper); }
+.pv__font small { display: block; margin-top: 6px; }
+.pv__file > .i { width: 28px; height: 28px; color: var(--ash); }
+.asset--skel { pointer-events: none; }
+.lib__warnings { margin: 0 0 var(--sp-4); padding: 10px 14px; border-radius: var(--r-sm); background: var(--bone); box-shadow: inset 0 0 0 1px var(--pebble); font-size: var(--fs-caption); color: var(--charcoal); }
+.lib__warnings summary { display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; color: var(--ink); }
+.lib__warnings ul { display: grid; gap: 4px; margin-top: 8px; }
+.lib__warnings li { overflow-wrap: anywhere; }
+.asset-copy { display: grid; gap: 12px; }
+.lib__workspace { grid-template-columns: minmax(0, 1fr); }
+.lib .empty { min-height: 280px; }
+@media (max-width: 719px) {
+  .popover--startup, .popover--notify, .popover--metric, .popover--exec { width: calc(100vw - 24px); }
+  .startup-chip { margin-right: 0; }
+  .server[data-state="ok"] { display: none; }             /* 좁은 화면: 정상일 때의 점은 빼고 끊김만 보인다 */
+  .startup-chip.has-count .startup-chip__label { display: none; }   /* 좁은 화면: '확인 필요 3' → '3'(읽기 이름은 그대로) */
+  .topbar:has(.startup-chip) .topbar__by, .topbar:has(.server[data-state="down"]) .topbar__by { display: none; }   /* 칩 · 끊김 표시가 있으면 보조 로고를 빼 자리를 낸다 */
+  .skills__nav--prev { left: -4px; }
+  .skills__nav--next { right: -4px; }                     /* 화면 가장자리 밖으로 1px 넘치지 않게 */
+}
