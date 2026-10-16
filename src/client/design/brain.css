@@ -1,0 +1,294 @@
+/* 앱 화면: 세컨드 브레인 구체(가운데 · 크게 연 카드). docs/design/second-brain-globe-20261014(css/globe.css · css/dark.css의 네트워크 구체)와
+   그 시안이 함께 쓰는 dashboard-v2 css/dashboard.css의 카드 틀 · 패널 · 범례 · 가운데 구체 규칙을 옮겼다.
+   바꾼 곳: 다크 · 네트워크 구체 전용 값만 둔다(라이트 · 지형 · 점 구체 퍼짐 · 시안 표시줄 규칙은 뺐다). */
+
+/* 스킬 · 루틴 색: 설정에 색이 없는 예약 분야라 여기 둔다(시안 dark.css의 네트워크 구체 단계). 콘텐츠 같은 설정 분야 · 기타의 색은
+   config/second-brain.json의 dark를 쓴다(brain/model.ts colorOf).
+   구체 면 토큰: 구체 위에 뜬 반투명 면(분야 목록 · 자주 쓰는 목록 · 범례) · 올렸을 때 설명의 보조 글씨 */
+:root {
+  --g-skills:      #ed9656;
+  --g-routines:    #ee87bf;
+  --g-glass:       rgba(12, 10, 9, 0.82);
+  --g-glass-strong: rgba(23, 21, 19, 0.94);
+  --g-tip-sub:     #57534d;
+  --g-tip-meta:    #6b645e;
+}
+
+/* ── 가운데 구체(메인 화면): 항목 없이 도는 여는 버튼 ── */
+.orb { background: var(--paper); }
+.orb__stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.orb__stage--status { display: grid; place-items: center; }
+.orb__loading { display: grid; justify-items: center; gap: var(--sp-3); }
+.orb__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.orb__enter { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; border-radius: var(--r-card); }
+.orb__enter:focus-visible { outline: 2px solid var(--ink); outline-offset: -6px; }
+.orb__hint { position: absolute; left: 50%; bottom: 20px; translate: -50% 0; display: inline-flex; align-items: center; gap: 4px; height: 28px; padding: 0 12px; border-radius: var(--r-pill); background: var(--bone); box-shadow: inset 0 0 0 1px var(--pebble); font-size: var(--fs-caption); color: var(--charcoal); white-space: nowrap; opacity: 0; transition: opacity var(--dur), translate var(--dur) var(--ease); }
+.orb__enter:hover .orb__hint, .orb__enter:focus-visible .orb__hint { opacity: 1; translate: -50% -3px; }
+@media (hover: none) { .orb__hint { opacity: 1; } }
+.orb.is-opening .orb__hint { opacity: 0; }
+.orb.is-opening .orb__enter { pointer-events: none; }
+
+/* ── 크게 연 카드: 카드가 그대로 화면을 채운다(새 페이지 없음) ── */
+.brain { background: var(--paper); padding: var(--card-pad) var(--card-pad) var(--sp-4); border-color: var(--pebble); }
+.brain::before { content: none; }
+.brain .card__head { position: relative; z-index: 3; }
+.brain__search { width: 220px; }
+.brain__stage { position: relative; flex: 1; min-height: 0; margin: 0 calc(var(--card-pad) * -1); overflow: hidden; }
+.brain-scrim { position: fixed; inset: 0; z-index: 40; background: var(--scrim); opacity: 0; transition: opacity 0.3s var(--ease); }
+.brain-scrim.is-on { opacity: 1; }
+.brain.is-expanded { position: fixed; inset: 12px; z-index: 50; box-shadow: var(--sh-float); will-change: opacity; }
+.brain.is-expanded .brain__panel { width: 340px; }
+/* 범례: 손잡이만 보이고, 올리거나 포커스하면 목록이 위로 펼쳐진다 */
+.brain__legend { position: absolute; left: var(--card-pad); bottom: 0; z-index: 2; display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px; padding-top: 8px; }
+.brain__legend-handle { display: inline-flex; align-items: center; gap: 8px; height: 28px; padding: 0 12px 0 10px; border-radius: var(--r-pill); background: var(--paper); box-shadow: inset 0 0 0 1px var(--pebble); font-size: var(--fs-caption); color: var(--charcoal); cursor: default; transition: box-shadow var(--dur) var(--ease); }
+.brain__legend:hover .brain__legend-handle, .brain__legend:focus-within .brain__legend-handle { box-shadow: inset 0 0 0 1px var(--ash); color: var(--ink); }
+.brain__legend-handle:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+.brain__legend-list { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; opacity: 0; translate: 0 6px; pointer-events: none; transition: opacity 0.18s var(--ease), translate 0.24s var(--ease); }
+.brain__legend:hover .brain__legend-list, .brain__legend:focus-within .brain__legend-list { opacity: 1; translate: 0 0; pointer-events: auto; }
+/* 고른 항목 패널 */
+.brain__panel {
+  position: absolute; top: 4px; right: 12px; bottom: 44px; z-index: 4; width: 288px;
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--paper); border: 1px solid var(--pebble); border-radius: var(--r-card); box-shadow: var(--sh-float);
+}
+.brain__badge { color: var(--c); box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--c) 50%, var(--paper)); }
+.brain__panel-head { display: flex; align-items: center; gap: var(--sp-2); padding: 12px 10px 0 16px; }
+.brain__panel-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 16px 16px; }
+.brain__panel h3 { font: 600 17px/1.35 var(--font-display); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.brain__path { margin-top: 6px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--bone); color: var(--charcoal); overflow-wrap: anywhere; line-height: 1.5; }
+.brain__facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin-top: var(--sp-3); font-size: var(--fs-caption); }
+.brain__facts dt { color: var(--stone); }
+.brain__facts dd { color: var(--ink); }
+.brain__actions { display: flex; gap: 4px; margin-top: var(--sp-3); }
+.brain__preview { margin-top: var(--sp-3); padding: 12px; border-radius: var(--r-sm); background: var(--bone); font-size: var(--fs-caption); line-height: 1.65; color: var(--charcoal); white-space: pre-wrap; }
+.brain__sub { margin-top: var(--sp-4); font: 600 var(--fs-caption)/1.3 var(--font-body); color: var(--charcoal); }
+.brain__links { margin-top: 6px; }
+.brain__links button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 6px; margin: 0 -6px; border-radius: var(--r-sm); text-align: left; font-size: var(--fs-small); }
+.brain__links button:hover { background: var(--bone); }
+.brain__links .kind { margin-left: auto; font-size: var(--fs-caption); color: var(--stone); }
+
+/* ── 카드 열기 · 닫기 전환 ──
+   열 때: 카드 면(배경 0.3초)이 먼저 메인 화면을 덮고 글자 · 도구는 0.2초 뒤에 나타난다(반쯤 비친 메인 화면 글자와 겹쳐 보이지 않게).
+   메인 화면 구체에서 열면 구체(캔버스)는 처음부터 또렷하다. 닫을 때: 카드 면이 걷히고 구체만 메인 화면 구체 자리로 줄어든다 */
+.bg .card__head { position: relative; z-index: 6; }
+.bg .brain__search { width: 260px; }
+.bg.is-expanded { height: auto; transition: background-color 0.3s var(--ease), box-shadow 0.3s var(--ease), border-color 0.3s var(--ease); }
+/* 메인 화면 구체 크기를 정할 때 열린 모습을 보이지 않게 잠깐 배치해 잰다(같은 프레임 안에서 되돌린다) */
+.bg.is-measuring { visibility: hidden !important; pointer-events: none; }
+.bg.is-entering { background-color: transparent; box-shadow: none; border-color: transparent; }
+.bg.is-entering .card__head, .bg.is-entering .bg-side, .bg.is-entering .bg-dock, .bg.is-entering .bg-favs, .bg.is-entering .bg-legendbox { opacity: 0; }
+.bg.is-expanded .card__head, .bg.is-expanded .bg-side, .bg.is-expanded .bg-dock, .bg.is-expanded .bg-favs, .bg.is-expanded .bg-legendbox { transition: opacity 0.3s var(--ease) 0.2s; }
+.bg.is-expanded .bg-canvas { transition: opacity 0.32s var(--ease); }
+@media (prefers-reduced-motion: reduce) {
+  .bg.is-expanded .card__head, .bg.is-expanded .bg-side, .bg.is-expanded .bg-dock, .bg.is-expanded .bg-favs, .bg.is-expanded .bg-legendbox { transition-delay: 0s; }
+}
+.bg.is-leaving { background-color: transparent; box-shadow: none; border-color: transparent; }
+.bg.is-leaving .card__head, .bg.is-leaving .bg-side, .bg.is-leaving .bg-dock, .bg.is-leaving .bg-favs, .bg.is-leaving .bg-legendbox, .bg.is-leaving .bg-panel { opacity: 0; transition: opacity 0.2s var(--ease); }
+
+.bg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.bg-canvas[hidden] { display: none; }
+.bg-drawer-hint { display: none; }
+.bg-canvas.is-dragging { cursor: grabbing; }
+.bg-canvas.is-pointing { cursor: pointer; }
+.bg-canvas:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; border-radius: var(--r-sm); }
+
+/* ── 도형 글리프: 분야 = 색, 종류 = 모양(스킬 마름모 · 문서 원 · 에셋 사각 · 루틴 삼각), 폴더 = 테두리만, 고리의 스킬 · 루틴 = 아이콘 배지 ── */
+.bg-glyph { --c: var(--ink); --s: 12px; position: relative; display: inline-block; width: var(--s); height: var(--s); flex: none; }
+.bg-glyph::before { content: ""; position: absolute; inset: 1px; background: var(--c); }
+.bg-glyph[data-shape="circle"]::before { border-radius: 50%; }
+.bg-glyph[data-shape="square"]::before { inset: 1.5px; border-radius: 2px; }
+.bg-glyph[data-shape="diamond"]::before { inset: 2px; border-radius: 1.5px; transform: rotate(45deg); }
+.bg-glyph[data-shape="triangle"]::before { inset: 0; clip-path: polygon(50% 6%, 96% 88%, 4% 88%); }
+.bg-glyph--hollow::before { background: transparent; box-shadow: inset 0 0 0 2px var(--c); }
+.bg-glyph--hollow[data-shape="triangle"]::before { background: var(--c); box-shadow: none; }
+.bg-glyph--hollow[data-shape="triangle"]::after { content: ""; position: absolute; inset: 0; background: var(--paper); clip-path: polygon(50% 38%, 76% 76%, 24% 76%); }
+.bg-glyph--core::before { inset: 0; border-radius: 50%; background: var(--accent); box-shadow: none; }
+.bg-glyph--icon::before { inset: 0; border-radius: 50%; }
+.bg-glyph--icon .i { position: absolute; inset: 18%; width: 64%; height: 64%; color: var(--paper); stroke-width: 2.4; }
+
+/* ── 왼쪽 위: 분야(범례 겸 필터) ── */
+.bg-side { position: absolute; z-index: 4; left: var(--card-pad); top: 4px; width: 200px; display: flex; flex-direction: column; gap: 6px; }
+.bg-side__head { display: flex; align-items: center; justify-content: space-between; height: 28px; padding-left: 2px; }
+.bg-side__title { font: 600 var(--fs-caption)/1 var(--font-body); color: var(--stone); }
+.bg-side__tools { display: flex; }
+.bg-groups { display: flex; flex-direction: column; gap: 2px; }
+.bg-group {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  height: 34px; padding: 0 10px 0 8px; border-radius: var(--r-sm); text-align: left;
+  font-size: var(--fs-small); font-weight: 500; color: var(--ink); background: var(--g-glass);
+  transition: background var(--dur) var(--ease), opacity var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.bg-group:hover { background: var(--bone); }
+.bg-group[aria-pressed="true"] { background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--c); }
+.bg-side.is-filtered .bg-group[aria-pressed="false"] { opacity: 0.45; }
+.bg-group__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-group__count { font: 500 var(--fs-caption)/1 var(--font-mono); color: var(--stone); }
+
+/* ── 왼쪽 아래: 범례 칩 ── */
+.bg .bg-legendbox { z-index: 4; bottom: 12px; }
+.bg-legend__handle { font: inherit; font-size: var(--fs-caption); }
+.bg-legend__mini { display: inline-flex; align-items: center; gap: 4px; }
+.bg-legend__mini .bg-glyph { --s: 9px; }
+.bg-legendbox__list { width: 236px; padding: 10px 10px 8px; border-radius: var(--r-card); background: var(--g-glass-strong); box-shadow: inset 0 0 0 1px var(--pebble), var(--sh-float); }
+.bg-legendbox .bg-legend { margin-top: 0; padding-top: 2px; border-top: 0; }
+/* 목록 보기에서는 범례 · 조작 단추 · 자주 쓰는 목록을 숨긴다(넓은 표가 그 아래로 겹친다) */
+.bg-stage.is-table .bg-legendbox, .bg-stage.is-table .bg-dock, .bg-stage.is-table .bg-favs { display: none; }
+.bg-legend { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 6px; padding: 10px 2px 0; border-top: 1px solid var(--pebble); font-size: var(--fs-caption); color: var(--stone); }
+.bg-legend > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.bg-legend .bg-glyph { --s: 10px; }
+.bg-legend__ring { width: 12px; height: 12px; border-radius: 50%; border: 1.25px dashed var(--charcoal); }
+.bg-legend__line { width: 16px; border-top: 1px solid var(--ash); }
+.bg-legend__line--md { border-top: 2px solid var(--accent); }
+.bg-legend__line--dash { border-top-style: dashed; }
+.bg-legend__orbit { width: 13px; height: 13px; border-radius: 50%; border: 1.5px solid var(--charcoal); }
+.bg-legend__orbit--saturn { width: 16px; height: 7px; border-radius: 50%; transform: rotate(-20deg); }
+.bg-legend__stars { width: 14px; height: 10px; flex: none; background: radial-gradient(circle at 18% 72%, var(--charcoal) 0 1.3px, transparent 1.8px), radial-gradient(circle at 52% 22%, var(--charcoal) 0 1.3px, transparent 1.8px), radial-gradient(circle at 86% 64%, var(--charcoal) 0 1.3px, transparent 1.8px); }
+.bg-legend__shapes { flex-basis: 100%; gap: 10px !important; }
+.bg-legend__shapes > span { display: inline-flex; align-items: center; gap: 4px; }
+/* 범례 겸 켜고 끄기: 문서 링크 · 폴더 구조 */
+.bg-toggles { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid var(--pebble); }
+.bg-toggle {
+  display: flex; align-items: center; gap: 8px; min-height: 30px; padding: 0 8px; border-radius: var(--r-sm); text-align: left;
+  font-size: var(--fs-caption); color: var(--charcoal); transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.bg-toggle:hover { background: var(--bone); color: var(--ink); }
+.bg-toggle__box { position: relative; width: 14px; height: 14px; flex: none; border-radius: var(--r-xs); box-shadow: inset 0 0 0 1.5px var(--ash); }
+.bg-toggle[aria-pressed="true"] { color: var(--ink); }
+.bg-toggle[aria-pressed="true"] .bg-toggle__box { background: var(--ink); box-shadow: none; }
+.bg-toggle[aria-pressed="true"] .bg-toggle__box::after { content: ""; position: absolute; left: 4.5px; top: 2px; width: 4px; height: 7px; border: solid var(--paper); border-width: 0 1.75px 1.75px 0; transform: rotate(45deg); }
+.bg-toggle[aria-pressed="false"] > :not(.bg-toggle__box) { opacity: 0.5; }
+.bg-toggles__note { display: flex; align-items: center; gap: 6px; padding: 0 8px 4px 30px; font-size: var(--fs-caption); color: var(--stone); }
+.bg-stat { padding: 6px 8px 0; font-size: var(--fs-caption); color: var(--stone); }
+
+/* ── 오른쪽 아래: 회전 · 확대 단추 ── */
+.bg-dock {
+  position: absolute; z-index: 4; right: var(--card-pad); bottom: 12px;
+  display: flex; align-items: center; gap: 4px; padding: 4px; border-radius: var(--r-pill);
+  background: var(--g-glass-strong); box-shadow: inset 0 0 0 1px var(--pebble), var(--sh-chip);
+}
+/* ── 오른쪽: 자주 쓰는 문서 · 스킬 · 루틴(분야 목록과 마주 보는 세로 목록 — 좁은 화면은 아래 가로 띠) ── */
+.bg-favs { position: absolute; z-index: 4; right: var(--card-pad); top: 4px; width: 200px; display: flex; flex-direction: column; gap: 6px; transition: opacity var(--dur) var(--ease), visibility var(--dur); }
+.bg-stage:has(.bg-panel:not([hidden])) .bg-favs { opacity: 0; visibility: hidden; } /* 고른 항목 패널이 열리면 그 아래로 가린다 */
+.bg-fav { display: flex; align-items: center; gap: 4px; flex: none; }
+@media (min-width: 720px) {
+  .bg-favs .bg-fav { flex-direction: column; align-items: stretch; gap: 10px; }
+  .bg-fav__sec { display: flex; flex-direction: column; gap: 2px; }
+  .bg-favs .bg-fav__title { padding: 0 2px 2px; }
+  .bg-favs .bg-fav__cell { display: flex; border-radius: var(--r-sm); background: var(--g-glass); box-shadow: none; }
+  .bg-favs .bg-fav__item { flex: 1; min-width: 0; height: 34px; gap: 10px; padding: 0 10px 0 8px; border-radius: var(--r-sm); font: 500 var(--fs-small)/1 var(--font-body); }
+  .bg-favs .bg-fav__item:hover { background: var(--bone); }
+  .bg-favs .bg-fav__item .bg-glyph { --s: 12px; }
+  .bg-favs .bg-fav__name { flex: 1; max-width: none; text-align: left; }
+  .bg-favs .bg-fav__run { margin: 0 4px 0 0; }
+}
+.bg-fav__title { padding: 0 6px 0 10px; font-size: var(--fs-caption); color: var(--stone); white-space: nowrap; }
+.bg-fav__cell { display: inline-flex; align-items: center; flex: none; border-radius: var(--r-pill); background: var(--bone); box-shadow: inset 0 0 0 1px var(--pebble); }
+.bg-fav__item {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px 0 10px; border-radius: var(--r-pill);
+  font: 500 var(--fs-caption)/1 var(--font-body); color: var(--ink); white-space: nowrap; transition: background var(--dur) var(--ease);
+}
+.bg-fav__item:hover { background: var(--pebble); }
+.bg-fav__item[aria-pressed="true"] { background: var(--paper); box-shadow: inset 0 0 0 1.5px var(--ink); }
+.bg-fav__item .bg-glyph { --s: 11px; }
+.bg-fav__name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.bg-fav__live { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: dot-pulse 1.6s ease-in-out infinite; }
+.bg-fav__run { margin: 0 2px 0 -6px; }
+.bg-fav__run .i { width: 13px; height: 13px; }
+
+/* ── 찾기 결과: 접힌 폴더 안까지 찾는다 ── */
+.bg-results {
+  position: absolute; top: calc(100% + 6px); right: 68px; z-index: 7;
+  width: min(440px, calc(100% - 24px)); max-height: 360px; overflow: auto; padding: 6px;
+  background: var(--paper); border: 1px solid var(--pebble); border-radius: var(--r-card); box-shadow: var(--sh-float);
+}
+.bg-result {
+  display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 10px; row-gap: 1px; align-items: center;
+  padding: 7px 10px; border-radius: var(--r-sm); cursor: pointer;
+}
+.bg-result:hover, .bg-result[aria-selected="true"] { background: var(--bone); }
+.bg-result[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--accent); }
+.bg-result .bg-glyph { grid-row: 1 / span 2; }
+.bg-result__name { font-size: var(--fs-small); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-result__path { grid-column: 2; font-size: var(--fs-caption); color: var(--stone); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bg-result__tag { grid-column: 3; grid-row: 1 / span 2; padding: 3px 8px; border-radius: var(--r-pill); box-shadow: inset 0 0 0 1px var(--pebble); font-size: var(--fs-caption); color: var(--stone); }
+.bg-result--empty { display: block; cursor: default; font-size: var(--fs-caption); color: var(--stone); }
+
+/* ── 오른쪽 패널: 위 .brain__panel에 몇 줄만 더한다 ── */
+.bg-panel { z-index: 5; bottom: 58px; }
+.bg-panel.is-arriving { pointer-events: none; }
+.bg-panel .brain__links .bg-glyph { --s: 10px; }
+.bg-panel h3:focus { outline: none; } /* 찾기에서 고른 뒤 낭독 시작점으로만 쓰는 포커스 */
+.bg-fold { margin-top: var(--sp-3); }
+.bg-excerpt { position: relative; max-height: 168px; overflow: hidden; font-family: var(--font-mono); font-weight: 500; }
+.bg-excerpt::after { content: ""; position: absolute; inset: auto 0 0; height: 32px; background: linear-gradient(transparent, var(--bone)); }
+.bg-depth-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: var(--sp-4); }
+.bg-depth-row .brain__sub { margin-top: 0; }
+.seg--sm { padding: 2px; }
+.seg--sm button { height: 24px; padding: 0 10px; }
+.bg-more { padding-top: 4px; font-size: var(--fs-caption); color: var(--stone); }
+.bg-offline { margin-top: var(--sp-3); padding: 8px 10px; border-radius: var(--r-sm); background: var(--bone); font-size: var(--fs-caption); line-height: 1.5; color: var(--stone); }
+
+/* ── 올렸을 때 설명(뒤집힌 면: 밝은 바탕 · 검은 글씨) ── */
+.bg-hover {
+  position: absolute; left: 0; top: 0; z-index: 6; max-width: 300px; padding: 8px 12px; border-radius: var(--r-sm);
+  background: var(--ink); color: var(--paper); pointer-events: none; box-shadow: var(--sh-float);
+  font: 500 var(--fs-caption)/1.45 var(--font-body);
+}
+.bg-hover strong { display: block; font-size: var(--fs-small); font-weight: 600; }
+.bg-hover span { display: block; color: var(--g-tip-sub); }
+.bg-hover .mono { color: var(--g-tip-meta); overflow-wrap: anywhere; }
+.bg-hover .bg-hover__hint { margin-top: 4px; color: var(--paper); opacity: 0.82; }
+
+/* ── 목록 보기 ── */
+.bg-table { position: absolute; inset: 0; z-index: 3; overflow: auto; padding: 4px var(--card-pad) 64px calc(200px + var(--card-pad) * 2); background: var(--paper); }
+.bg-stage:has(.bg-panel:not([hidden])) .bg-table { padding-right: 372px; }
+.bg-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-small); }
+.bg-tbl th { position: sticky; top: -4px; z-index: 1; padding: 8px 10px; border-bottom: 1px solid var(--pebble); background: var(--paper); text-align: left; font: 600 var(--fs-caption)/1.3 var(--font-body); color: var(--stone); white-space: nowrap; }
+.bg-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--pebble); vertical-align: middle; }
+.bg-tbl tbody tr { cursor: pointer; }
+.bg-tbl tbody tr:hover { background: var(--bone); }
+.bg-tbl tbody tr[aria-selected="true"] { background: var(--pebble); }
+.bg-tbl tbody tr:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.bg-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bg-table__name { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.bg-table__path { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--stone); }
+.bg-table__muted { color: var(--stone); white-space: nowrap; }
+
+/* ── 전체 미리보기 대화상자 ── */
+.bg-preview-dialog { width: min(720px, calc(100vw - 32px)); }
+.bg-preview__meta { margin-bottom: var(--sp-3); color: var(--stone); overflow-wrap: anywhere; }
+.bg-preview__text { margin: 0; padding: 16px; border-radius: var(--r-sm); background: var(--bone); font: 500 12px/1.65 var(--font-mono); color: var(--charcoal); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ── 좁은 화면: 분야는 위쪽 한 줄, 패널은 아래 서랍 ── */
+@media (max-width: 719px) {
+  .brain__panel { left: 12px; right: 12px; top: auto; width: auto; max-height: 72%; }
+  .brain.is-expanded .brain__panel { width: auto; }
+  .brain__search, .bg .brain__search { width: 150px; }
+  .bg-side { left: 12px; right: 12px; width: auto; }
+  .bg-side__head, .bg-legend { display: none; }
+  .bg-groups { flex-direction: row; overflow-x: auto; scrollbar-width: none; }
+  .bg-groups::-webkit-scrollbar { display: none; }
+  .bg-group { flex: none; height: 30px; grid-template-columns: 12px auto auto; gap: 6px; box-shadow: inset 0 0 0 1px var(--pebble); }
+  .bg-table { padding: 48px 12px 64px; }
+  .bg-stage:has(.bg-panel:not([hidden])) .bg-table { padding-right: 12px; }
+  .bg-table__path { max-width: 140px; }
+  .bg-results { left: 0; right: 0; width: auto; }
+  .bg-toggles, .bg-stat, .bg-legendbox { display: none; }
+  .bg-fav__title { display: none; }
+  /* 자주 쓰는 목록 · 조작 단추: 화면 아래 한 띠(왼쪽은 가로로 넘기는 자주 쓰는 칩, 오른쪽 끝은 조작 단추) */
+  .bg-favs {
+    left: 12px; right: 148px; top: auto; bottom: 10px; width: auto; height: 40px; flex-direction: row; align-items: center; padding: 4px;
+    border-radius: var(--r-pill); background: var(--g-glass-strong); box-shadow: inset 0 0 0 1px var(--pebble), var(--sh-chip); overflow-x: auto; scrollbar-width: none;
+  }
+  .bg-favs::-webkit-scrollbar { display: none; }
+  .bg-favs__head { display: none; }
+  .bg-fav__sec { display: contents; }
+  .bg-dock { right: 12px; bottom: 10px; }
+  /* 고른 항목 서랍: 구체 아래 남는 자리를 채운다. 자리가 모자라면 아래에서 덮는다. 고른 것이 없을 때는 그 자리의 쓰임을 한 줄로 알려 준다 */
+  .bg-stage.has-drawer-room .bg-panel { top: var(--bg-drawer-top); max-height: none; }
+  .bg-stage.has-drawer-room .bg-drawer-hint {
+    display: block; position: absolute; z-index: 2; left: 32px; right: 32px; top: calc(var(--bg-drawer-top) + 28px);
+    text-align: center; font-size: var(--fs-caption); line-height: 1.5; color: var(--stone); pointer-events: none;
+  }
+  .bg-stage:has(.bg-panel:not([hidden])) .bg-drawer-hint, .bg-stage.is-table .bg-drawer-hint { display: none; }
+}

@@ -1,0 +1,274 @@
+/* 앱 화면: docs/design/dashboard-v2/css/dashboard.css(지구본 시안 second-brain-globe-20261014가 불러오는 v2 원본)를 옮겼다.
+   바꾼 곳: 가운데(.dash__center)는 세컨드 브레인 구체(design/brain.css — 지구본 시안)를 두고, v2 고리형 지도 · 오브 퍼짐 · 시안 표시 스타일은 뺐다.
+   ─ 아래는 시안 원문 ─
+   메인 대시보드 — 머리줄 · 3열 배치 · 카드 · 세컨드 브레인 지도
+   배치 원칙(Rubric OS 참고): 화면 높이 안에 모든 카드가 고정 크기로 들어가고, 내용이 많으면 카드 안에서 스크롤한다.
+   좌우 열 너비는 같고(각 1/4), 캘린더 · 이메일은 높이를 고정해 내용이 늘어도 아래로 밀리지 않는다.
+   두 열의 세 번째 영역(다른 대시보드 · 루틴) 위 선이 같은 높이에 오도록 --h-cal · --h-mail을 맞췄고, 남는 높이는 그 아래 빈 공간이 된다. */
+
+/* ── 머리줄 ── */
+.topbar {
+  display: flex; align-items: center; gap: var(--sp-4);
+  height: var(--header-h); padding: 0 var(--pad);
+  max-width: 1760px; margin: 0 auto;
+}
+.topbar__brand { display: flex; align-items: center; gap: var(--sp-3); text-decoration: none; flex: none; border-radius: var(--r-xs); }
+.topbar__brand img { height: 19px; width: auto; }
+.topbar__by { display: flex; align-items: center; padding-left: var(--sp-3); border-left: 1px solid var(--pebble); }
+.topbar__by img { height: 13px; opacity: 0.75; }
+.topbar__crumb { display: flex; align-items: center; gap: var(--sp-3); font: 600 var(--fs-title)/1 var(--font-body); color: var(--ink); white-space: nowrap; }
+.topbar__crumb::before { content: ""; width: 1px; height: 16px; background: var(--pebble); }
+.topbar__center { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.topbar__actions { display: flex; align-items: center; gap: var(--sp-1); margin-left: auto; flex: none; }
+.topbar__date { color: var(--stone); margin-right: var(--sp-4); white-space: nowrap; }
+
+/* 서버 연결: 정상이면 날짜 앞의 점 하나(올리면 확인 시각), 끊기면 문구와 다시 확인 버튼이 나타난다 */
+.server { display: inline-flex; align-items: center; gap: var(--sp-2); height: 32px; padding: 0 2px 0 var(--sp-2); border-radius: var(--r-pill); }
+.server .dot { width: 6px; height: 6px; }
+.server__label { font-size: var(--fs-caption); color: var(--charcoal); white-space: nowrap; }
+.server[data-state="ok"] .server__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.server[data-state="ok"] .server__retry { display: none; }
+.server[data-state="checking"] .dot { background: var(--ash); animation: dot-pulse 1.2s ease-in-out infinite; }
+.server[data-state="down"] { background: var(--pebble); padding: 0 var(--sp-1) 0 var(--sp-3); }
+.server[data-state="down"] .server__label { color: var(--ink); font-weight: 600; }
+
+/* ── 3열 배치 ── */
+.dash {
+  display: grid;
+  grid-template-columns: minmax(296px, 1fr) minmax(0, 2fr) minmax(296px, 1fr);
+  column-gap: var(--col-gap); row-gap: var(--gap);
+  height: calc(100vh - var(--header-h));
+  height: calc(100dvh - var(--header-h));
+  min-height: 716px; /* 이보다 낮은 창에서는 페이지가 스크롤된다 */
+  padding: 0 var(--pad) var(--pad);
+  max-width: 1760px; margin: 0 auto;
+}
+.dash__col { display: grid; gap: var(--gap); min-height: 0; min-width: 0; }
+/* 위치를 명시해 두면 세컨드 브레인을 열 때(고정 위치) 좌우 열이 밀리지 않는다 */
+.dash__col--left { grid-column: 1; grid-row: 1; grid-template-rows: auto var(--h-cal) 1fr; }
+.dash > .dash__center { grid-column: 2; grid-row: 1; min-width: 0; }
+.dash__col--right { grid-column: 3; grid-row: 1; grid-template-rows: var(--h-mail) auto 1fr; }
+
+/* ── 카드: 면 · 테두리를 바탕(paper)과 같게 맞춰 상자를 지우고, 위쪽 오렌지 선 하나로 영역을 나눈다.
+   좌우 여백이 없어 제목 · 내용이 선 끝과 맞는다(머리줄 로고와도 같은 세로선). 크게 본 세컨드 브레인은 떠 있는 면이라 상자를 유지한다 ── */
+.card {
+  position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+  padding: var(--card-top) 0 0;
+  background: var(--paper); border: 1px solid var(--paper); border-radius: var(--r-card);
+}
+.card::before { content: ""; position: absolute; top: -1px; left: -1px; right: -1px; height: 2px; background: var(--accent); pointer-events: none; }
+.card__head { display: flex; align-items: center; gap: var(--sp-2); min-height: 28px; margin-bottom: var(--sp-3); flex: none; }
+.card__title { display: flex; align-items: center; gap: var(--sp-2); font: 600 var(--fs-title)/1.3 var(--font-body); white-space: nowrap; }
+.card__title .i { color: var(--charcoal); }
+.card__meta { font-size: var(--fs-caption); color: var(--stone); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.card__tools { display: flex; align-items: center; gap: 2px; margin-left: auto; flex: none; }
+.card__body { flex: 1; min-height: 0; }
+.card__foot { display: flex; align-items: center; gap: 6px; margin-top: var(--sp-3); flex: none; font-size: var(--fs-caption); color: var(--stone); min-width: 0; }
+.card__foot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card__foot .i { width: 14px; height: 14px; }
+/* 상태 칩: 정상일 때는 표시하지 않고, 미연결 · 갱신 필요 · 오류일 때만 나타난다 */
+.state-chip { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px 0 6px; border-radius: var(--r-pill); background: var(--pebble); font: 600 var(--fs-caption)/1 var(--font-body); color: var(--ink); white-space: nowrap; }
+.state-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.state-chip--quiet::before { background: var(--ash); }
+/* 마우스가 있는 화면에서는 새로고침처럼 자주 쓰지 않는 버튼을 카드에 올렸을 때만 보인다 */
+@media (hover: hover) {
+  .reveal { opacity: 0; transition: opacity var(--dur) var(--ease); }
+  .card:hover .reveal, .card:focus-within .reveal, .reveal:focus-visible, .reveal.is-busy { opacity: 1; }
+}
+.is-busy .i { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* 다시 불러오는 동안 이전 내용을 흐리게 유지한다(깜박임 · 밀림 없음) */
+.is-refetching .card__body { opacity: 0.55; transition: opacity var(--dur); }
+
+/* ── 지표 카드 ── */
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-6); min-width: 0; }
+.metric { min-height: 150px; }
+.metric__figure { display: block; text-align: left; }
+.metric__switch { display: block; width: 100%; padding: 0; text-align: left; border-radius: var(--r-sm); cursor: pointer; }
+.metric__switch:hover .metric__value { color: var(--charcoal); }
+.metric__dots { display: flex; gap: 4px; margin-top: var(--sp-2); }
+.metric__dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--pebble); }
+.metric__dots i.is-on { background: var(--accent); }
+.metric .card__head { margin-bottom: var(--sp-2); }
+.metric__value { white-space: nowrap; }
+.metric__label { margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.metric__delta { display: flex; align-items: center; gap: 6px; margin-top: var(--sp-2); flex-wrap: wrap; }
+.delta { display: inline-flex; align-items: center; gap: 2px; height: 22px; padding: 0 8px 0 5px; border-radius: var(--r-pill); background: var(--pebble); font: 600 var(--fs-caption)/1 var(--font-display); color: var(--ink); white-space: nowrap; }
+.delta .i { width: 14px; height: 14px; stroke-width: 2; }
+.delta--none { padding: 0 8px; color: var(--charcoal); font-family: var(--font-body); }
+.metric__skel { display: grid; gap: 8px; }
+.metric .card__foot { margin-top: var(--sp-2); }
+
+/* ── 캘린더: 잔디 칸은 18px 정사각형 고정(GitHub 잔디처럼 작고 또렷하게). 카드 높이는 --h-cal로 고정하고,
+   일정이 많은 날은 아래 목록 안에서만 스크롤한다(카드가 아래로 늘어나지 않음) ── */
+.cal .card__tools { gap: 0; }
+.cal__month { min-width: 58px; text-align: center; color: var(--ink); font-size: var(--fs-small); }
+.cal__today { margin-right: var(--sp-1); height: 24px; padding: 0 10px; }
+.cal__week, .cal__grid { display: grid; grid-template-columns: 40px repeat(7, 18px); gap: 5px; justify-content: start; }
+.cal__wk { display: flex; align-items: center; font-size: var(--fs-caption); color: var(--stone); white-space: nowrap; }
+.cal__week { margin-bottom: 2px; flex: none; }
+.cal__week span { text-align: center; font-size: var(--fs-caption); color: var(--stone); }
+.cal__grid { flex: none; grid-template-rows: repeat(var(--rows, 5), 18px); }
+.cal__cell {
+  position: relative; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border-radius: 4px; background: var(--pebble);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.cal__cell[data-level="1"] { background: var(--seq-1); }
+.cal__cell[data-level="2"] { background: var(--seq-2); }
+.cal__cell[data-level="3"] { background: var(--seq-3); }
+.cal__cell[data-level="4"] { background: var(--seq-4); }
+.cal__cell[data-level="unknown"] { background: var(--bone); box-shadow: inset 0 0 0 1px var(--pebble); color: var(--ash); }
+.cal__cell.is-outside { background: transparent; box-shadow: inset 0 0 0 1px var(--pebble); color: var(--ash); }
+.cal__cell:hover { box-shadow: inset 0 0 0 1.5px var(--charcoal); }
+.cal__cell.is-today::after { content: ""; position: absolute; width: 4px; height: 4px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 1.5px var(--bone); }
+.cal__cell[aria-pressed="true"] { box-shadow: 0 0 0 1.5px var(--bone), 0 0 0 3px var(--ink); z-index: 1; }
+.cal__agenda { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; margin-top: var(--sp-3); border-top: 1px solid var(--pebble); padding-top: 10px; }
+.cal__agenda-head { display: flex; align-items: center; gap: var(--sp-2); flex: none; }
+.cal__agenda-head strong { font: 600 var(--fs-small)/1.3 var(--font-body); white-space: nowrap; }
+.cal__legend { display: flex; align-items: center; gap: 3px; margin-left: auto; font-size: var(--fs-caption); color: var(--stone); }
+.cal__legend i { width: 10px; height: 10px; border-radius: 3px; background: var(--pebble); }
+.cal__legend i:nth-of-type(2) { background: var(--seq-1); }
+.cal__legend i:nth-of-type(3) { background: var(--seq-2); }
+.cal__legend i:nth-of-type(4) { background: var(--seq-3); }
+.cal__legend i:nth-of-type(5) { background: var(--seq-4); }
+.cal__legend span:first-child { margin-right: 3px; }
+.cal__legend span:last-child { margin-left: 3px; }
+/* 스크롤 막대는 열 사이 틈(오른쪽 10px)에 둬서 시간 · 링크를 가리지 않는다 */
+.cal__events { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; margin: 6px -10px 0 0; padding-right: 10px; }
+.cal__event { display: grid; grid-template-columns: 44px 1fr auto; gap: var(--sp-2); align-items: baseline; padding: 5px 0; font-size: var(--fs-small); }
+.cal__event time { color: var(--stone); }
+.cal__event a { display: inline-grid; place-items: center; color: var(--stone); border-radius: var(--r-xs); }
+.cal__event a:hover { color: var(--ink); }
+.cal__none { padding: 6px 0; font-size: var(--fs-small); color: var(--stone); }
+
+/* ── 이메일: 카드 높이는 --h-mail로 고정하고 목록 안에서만 스크롤한다. 제목은 진한 오렌지(사용자 요청 예외) ── */
+.mail__list { flex: 1; min-height: 0; overflow-y: auto; margin-right: -10px; padding-right: 10px; overscroll-behavior: contain; }
+.mail__row { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; column-gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--pebble); }
+.mail__row:first-child { border-top: 0; padding-top: 2px; }
+.mail__row .dot { margin-top: 7px; background: transparent; }
+.mail__row.is-unread .dot { background: var(--accent); }
+.mail__from { font: 500 var(--fs-small)/1.45 var(--font-body); color: var(--charcoal); }
+.mail__row.is-unread .mail__from { font-weight: 600; color: var(--ink); }
+.mail__subject { font-size: var(--fs-small); line-height: 1.45; color: var(--accent-text); }
+.mail__row time { color: var(--stone); padding-top: 2px; }
+.mail .card__foot { margin-top: 0; padding-top: 10px; border-top: 1px solid var(--pebble); }
+.mail__skel { display: grid; gap: 14px; padding-top: 4px; }
+.mail__skel div { display: grid; gap: 6px; }
+
+/* ── 스킬: 2×2 묶음을 좌우로 넘긴다(점 · 화살표 · 트랙패드 밀기) ── */
+.skills .card__head { margin-bottom: var(--sp-3); }
+.skills__search { flex: 1; margin-left: var(--sp-2); }
+.skills__deck { position: relative; flex: none; margin: 0 -6px; }
+.skills__track {
+  display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scroll-behavior: smooth;
+  scrollbar-width: none; overscroll-behavior-x: contain; border-radius: var(--r-sm);
+}
+.skills__track::-webkit-scrollbar { display: none; }
+.skills__page {
+  flex: 0 0 100%; scroll-snap-align: start; scroll-snap-stop: always;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 80px 80px; gap: var(--sp-2); padding: 0 6px;
+}
+.skills__nav {
+  position: absolute; top: 50%; z-index: 2; translate: 0 -50%;
+  background: var(--paper); box-shadow: var(--sh-chip), inset 0 0 0 1px var(--pebble);
+}
+.skills__nav--prev { left: -12px; }
+.skills__nav--next { right: -12px; }
+.skills__nav:disabled { visibility: hidden; }
+@media (hover: hover) {
+  .skills__nav { opacity: 0; transition: opacity var(--dur) var(--ease); }
+  .skills__deck:hover .skills__nav, .skills__nav:focus-visible { opacity: 1; }
+}
+.skills__dots { display: flex; justify-content: center; gap: 2px; margin-top: 8px; flex: none; min-height: 16px; }
+.skills__dots button { display: grid; place-items: center; width: 20px; height: 16px; border-radius: var(--r-pill); }
+.skills__dots button::before { content: ""; width: 6px; height: 6px; border-radius: var(--r-pill); background: var(--ash); transition: width var(--dur) var(--ease), background var(--dur) var(--ease); }
+.skills__dots button[aria-selected="true"]::before { width: 16px; background: var(--ink); }
+.skills__empty { display: grid; place-items: center; height: 164px; text-align: center; font-size: var(--fs-small); color: var(--stone); }
+.skills__empty p + .btn { margin-top: var(--sp-2); }
+
+/* 타일: 위 — 이름(두 줄까지), 아래 — 실행 버튼과 상태. 설정은 올렸을 때만 오른쪽 위에 나타난다 */
+.tile {
+  position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 4px;
+  min-width: 0; padding: 8px 10px 8px 11px; border-radius: var(--r-sm);
+  background: var(--paper); box-shadow: inset 0 0 0 1px var(--pebble);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.tile:hover { box-shadow: inset 0 0 0 1px var(--ash); }
+.tile__name {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font: 600 12.5px/1.28 var(--font-body); color: var(--ink); text-decoration: none; overflow-wrap: anywhere; border-radius: var(--r-xs);
+  margin-right: 18px; /* 설정 버튼 자리 — 호버해도 줄바꿈이 바뀌지 않게 항상 비워 둔다 */
+}
+.tile__name:hover { text-decoration: underline; }
+.tile__row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tile__play.icon-btn { width: 28px; height: 28px; }
+.tile__play .i { width: 13px; height: 13px; }
+.tile__state { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: var(--fs-caption); line-height: 1.3; color: var(--stone); white-space: nowrap; overflow: hidden; }
+.tile__state > span:not(.dot):not(.mono), .tile__state button { overflow: hidden; text-overflow: ellipsis; }
+.tile__state .i { width: 13px; height: 13px; stroke-width: 2; flex: none; }
+.tile__state button { color: inherit; text-decoration: underline; text-underline-offset: 2px; border-radius: var(--r-xs); }
+.tile__gear { position: absolute; top: 3px; right: 3px; background: var(--paper); }
+@media (hover: hover) {
+  .tile__gear { opacity: 0; transition: opacity var(--dur) var(--ease); }
+  .tile:hover .tile__gear, .tile:focus-within .tile__gear { opacity: 1; }
+}
+.tile__bar { position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; }
+.tile[data-state="waiting_input"] .tile__state, .tile[data-state="needs_input"] .tile__state, .tile[data-state="failed"] .tile__state { color: var(--ink); font-weight: 500; }
+.tile[data-state="unconfigured"] .tile__state { color: var(--charcoal); }
+
+/* ── 루틴 ── */
+.routines__list { flex: 1; min-height: 0; overflow-y: auto; margin-right: -10px; padding-right: 10px; }
+.routine { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-3); align-items: center; padding: 7px 0; border-top: 1px solid var(--pebble); }
+.routine:first-child { border-top: 0; padding-top: 0; }
+.routine__name { font: 600 var(--fs-small)/1.35 var(--font-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.routine__state { display: flex; align-items: center; gap: 4px; margin-top: 1px; font-size: var(--fs-caption); color: var(--stone); white-space: nowrap; overflow: hidden; }
+.routine__state button { color: inherit; text-decoration: underline; text-underline-offset: 2px; border-radius: var(--r-xs); }
+.routine .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+
+/* ── 다른 대시보드 ── */
+/* 영역이 남는 높이를 받아도 타일은 늘어나지 않는다 */
+.link-tile {
+  flex: none; display: flex; flex-direction: column; gap: 10px;
+  padding: 10px; border-radius: var(--r-sm); background: var(--paper); box-shadow: inset 0 0 0 1px var(--pebble);
+  text-decoration: none; color: inherit; transition: box-shadow var(--dur) var(--ease);
+}
+.link-tile:hover { box-shadow: inset 0 0 0 1px var(--ash); }
+.link-tile:hover .link-tile__go { transform: translate(2px, -2px); color: var(--ink); }
+.link-tile__thumbs { flex: none; height: 32px; display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 6px; }
+.link-tile__thumbs i { border-radius: 6px; background: var(--pebble); display: grid; place-items: center; overflow: hidden; }
+.link-tile__thumbs i:nth-child(1) { background: var(--ink); }
+.link-tile__thumbs i:nth-child(2) { background: var(--accent); }
+.link-tile__thumbs i:nth-child(3) { background: var(--bone); box-shadow: inset 0 0 0 1px var(--pebble); }
+.link-tile__thumbs svg { height: 52%; width: auto; max-width: 80%; }
+.link-tile__thumbs i:nth-child(1) svg { height: 46%; }
+.link-tile__thumbs .link-tile__spark { width: 20px; height: 20px; }
+.link-tile__foot { display: flex; align-items: center; gap: var(--sp-3); padding: 0 2px; }
+.link-tile__text { flex: 1; min-width: 0; }
+.link-tile__text strong { display: block; font: 600 var(--fs-small)/1.4 var(--font-body); }
+.link-tile__go { color: var(--stone); transition: transform var(--dur) var(--ease), color var(--dur) var(--ease); }
+.links .card__foot { margin-top: auto; }
+
+/* ── 좁은 화면 ── 1023px 이하에서는 가운데 세컨드 브레인을 맨 위 한 줄로 올린다(시안과 같음) */
+@media (max-width: 1180px) {
+  .dash { grid-template-columns: minmax(272px, 1fr) minmax(0, 1.5fr) minmax(272px, 1fr); }
+  .topbar__date { display: none; }
+}
+@media (max-width: 1023px) {
+  .dash { grid-template-columns: 1fr 1fr; height: auto; min-height: 0; }
+  .dash > .dash__center { grid-column: 1 / -1; grid-row: 1; height: 560px; }
+  .dash__col--left { grid-column: 1; grid-row: 2; grid-template-rows: auto var(--h-cal) var(--row-bottom); }
+  .dash__col--right { grid-column: 2; grid-row: 2; grid-template-rows: var(--h-mail) auto var(--row-bottom); }
+}
+@media (max-width: 719px) {
+  :root { --pad: 16px; --card-pad: 16px; }
+  .topbar { gap: var(--sp-2); }
+  .dash { grid-template-columns: minmax(0, 1fr); }
+  .dash > .dash__center { grid-column: 1; height: 480px; }
+  .dash__col--left { grid-column: 1; grid-row: 2; }
+  .dash__col--right { grid-column: 1; grid-row: 3; }
+  .dash__col--left, .dash__col--right { grid-template-rows: none; grid-auto-rows: auto; }
+  .cal { height: var(--h-cal); }
+  .mail { height: var(--h-mail); }
+  .routines, .links { min-height: var(--row-bottom); }
+}
