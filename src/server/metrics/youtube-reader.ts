@@ -1,5 +1,5 @@
-import { lstat, readdir, open } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { lstat, readdir } from 'node:fs/promises';
+import { openRegular } from '../platform/storage.js';
 import { isAbsolute, join } from 'node:path';
 import { isYouTubeSnapshot, youtubeDate, publicYouTubeAnalytics } from '../../shared/youtube-metrics.js';
 import type { YouTubeSnapshot, YouTubeMetricsSummary } from '../../shared/youtube-metrics.js';
@@ -29,7 +29,7 @@ export class YouTubeMetricsReader {
           if (!file.name.endsWith('.json')) continue;
           if (!file.isFile() || file.isSymbolicLink()) { invalidFiles++; continue; }
           try {
-            const handle = await open(join(root, date.name, file.name), constants.O_RDONLY | constants.O_NOFOLLOW);
+            const handle = await openRegular(join(root, date.name, file.name));
             let raw: string;
             try { if ((await handle.stat()).size > 1024 * 1024) throw new Error(); raw = await handle.readFile('utf8'); }
             finally { await handle.close(); }

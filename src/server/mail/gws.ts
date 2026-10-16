@@ -1,4 +1,5 @@
-import { execFile } from 'node:child_process';
+import { captureProcess } from '../platform/process.js';
+import { resolveCommand } from '../platform/commands.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { envDirectory } from '../local-env.js';
@@ -22,17 +23,14 @@ export function gwsFailure(output: string, code: unknown): MailError {
   if (error?.code === 403) return new MailError('GWS_PERMISSION');
   return new MailError('GWS_FAILED');
 }
-export function runGws(args: string[], signal: AbortSignal, executable = 'gws'): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-  execFile(executable, args, { shell: false, signal, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024, encoding: 'utf8', env: gwsEnvironment() }, (error, stdout) => {
-    if (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      reject(code === 'ENOENT' ? new MailError('GWS_NOT_FOUND') : gwsFailure(stdout, code));
-      return;
-    }
-    try { resolve(JSON.parse(stdout)); } catch { reject(new MailError('GWS_RESPONSE')); }
-  });
-  });
+export async function runGws(args: string[], signal: AbortSignal, executable = 'gws'): Promise<unknown> {
+  const env = gwsEnvironment();
+  if (!resolveCommand(executable, env)) throw new MailError('GWS_NOT_FOUND');
+  let response;
+  try { response = await captureProcess(executable, args, { signal, timeout: 20000, env }); }
+  catch { throw new MailError('GWS_FAILED'); }
+  if (response.code !== 0) throw gwsFailure(response.stdout, response.code);
+  try { return JSON.parse(response.stdout); } catch { throw new MailError('GWS_RESPONSE'); }
 }
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new MailError('GWS_RESPONSE');

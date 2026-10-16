@@ -5,16 +5,30 @@ import { dirname, join } from 'node:path';
 import { MetricsCollection, repositoryRoot, scheduleFile, scheduleLabel } from '../src/server/metrics/collection.js';
 import { CollectionStore } from '../src/server/metrics/collection-store.js';
 import { loadLocalEnv } from '../src/server/local-env.js';
+import { windowsSchedule, nextLocalTime } from '../src/server/platform/schedule.js';
+import { resolveCommand } from '../src/server/platform/commands.js';
 loadLocalEnv();
 const execute = promisify(execFile);
 const args = process.argv.slice(2);
-const target = `gui/${process.getuid!()}/${scheduleLabel}`;
+const target = process.platform === 'darwin' ? `gui/${process.getuid!()}/${scheduleLabel}` : '';
 async function registered() {
   try { await execute('/bin/launchctl', ['print', target], { maxBuffer: 65536 }); return true; } catch { return false; }
 }
 const escape = (text: string) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;');
 try {
-  if (process.platform !== 'darwin' || args.length !== 1 || !['--install', '--status', '--uninstall'].includes(args[0])) throw new Error();
+  if (!['darwin', 'win32'].includes(process.platform) || args.length !== 1 || !['--install', '--status', '--uninstall'].includes(args[0])) throw new Error();
+  if (process.platform === 'win32') {
+    if (args[0] === '--install') {
+      const collection = new MetricsCollection();
+      if (Intl.DateTimeFormat().resolvedOptions().timeZone !== 'Asia/Seoul' || !collection.available('ghost') || !collection.available('youtube') || !resolveCommand('yt-dlp')) throw new Error('NOT_CONFIGURED');
+      await collection.store.prepare();
+      await windowsSchedule('install', scheduleLabel, { command: process.execPath, args: ['--import', 'tsx', join(repositoryRoot, 'scripts/collect-metrics.ts'), '--scheduled'], cwd: repositoryRoot, at: nextLocalTime(new Date().getHours() + 1, 0), hourly: true });
+      console.info('로그인 사용자용 지표 예약 등록: KST 09시 수집, 정시 재시도.');
+    } else if (args[0] === '--uninstall') {
+      if (Object.values((await new MetricsCollection().status()).services).some(v => v.lastAttempt?.status === 'running')) throw new Error('RUNNING');
+      await windowsSchedule('remove', scheduleLabel); console.info('지표 예약 해제 완료.');
+    } else console.info(await windowsSchedule('status', scheduleLabel));
+  } else {
   const file = scheduleFile();
   if (args[0] === '--install') {
     if (Intl.DateTimeFormat().resolvedOptions().timeZone !== 'Asia/Seoul') {
@@ -58,4 +72,5 @@ try {
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
     console.info('지표 수집 예약을 해제했습니다. 지표 JSON·인증·실행 상태는 유지합니다.');
   } else console.info(`지표 수집 예약: ${await registered() ? '등록됨 · 매일 KST 09:00, 실패 시 시간별 재시도' : '미등록'}`);
+  }
 } catch { console.error('예약 설정을 처리하지 못했습니다. 사용법: npm run schedule:metrics -- --install | --status | --uninstall. 경로·권한·기존 예약을 확인해 주세요.'); process.exitCode = 1; }

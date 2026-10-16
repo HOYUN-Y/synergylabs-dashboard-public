@@ -1,7 +1,7 @@
 import { AsyncEntry } from '@napi-rs/keyring';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, unlink, chmod } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
+import { appDataDirectory, privateDirectory } from '../platform/storage.js';
 import { join } from 'node:path';
 import type { MailInput, MailSettings, MailSettingsResponse } from '../../shared/api.js';
 import { MailError } from './errors.js';
@@ -26,7 +26,7 @@ type StoredSettings = { settings: MailSettings; credentialId: string; obsoleteId
 export class MailStore {
   private file: string;
   constructor(
-    private directory = join(homedir(), 'Library', 'Application Support', 'SynergyLabs Dashboard'),
+    private directory = appDataDirectory(),
     private credentials = keychainCredentials()
   ) { this.file = join(directory, 'mail.json'); }
 
@@ -46,8 +46,7 @@ export class MailStore {
   private async write(value: StoredSettings) {
     const temp = `${this.file}.${randomUUID()}.tmp`;
     try {
-      await mkdir(this.directory, { recursive: true, mode: 0o700 });
-      await chmod(this.directory, 0o700);
+      await privateDirectory(this.directory);
       await writeFile(temp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
       await rename(temp, this.file);
     } catch { throw new MailError('STORAGE_FAILED'); }

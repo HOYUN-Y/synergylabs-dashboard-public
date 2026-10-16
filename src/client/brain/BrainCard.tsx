@@ -159,7 +159,7 @@ function Panel({ c, n, panel, onPreview, onClose }: { c: BrainController; n: Gra
         {runnable && <IconButton icon="play" label={`${skill.name} 실행`} tip={live ? '실행 중' : '실행'} variant="solid" size="sm" disabled={!skill.ready || live} onClick={() => c.onRunSkill(skill.id)} />}
         {n.capabilities.preview && <IconButton icon="eye" label="전체 미리보기" variant="line" size="sm" onClick={() => onPreview(n)} />}
         <IconButton icon="copy" label="경로 복사" variant="line" size="sm" onClick={() => c.copyPath(n)} />
-        {n.capabilities.reveal && <IconButton icon="external" label="Finder에서 위치 보기" variant="line" size="sm" onClick={() => c.reveal(n)} />}
+        {n.capabilities.reveal && <IconButton icon="external" label="파일 위치 보기" variant="line" size="sm" onClick={() => c.reveal(n)} />}
       </div>
       {/* 펼치기 · 접기는 접어 둔 파일(이미지 · 데이터)이 아닌 하위가 있을 때만 */}
       {n.kind === 'folder' && n.parentId !== null && !m.orbital.has(n.id) && (m.kids.get(n.id) ?? []).some(child => !isTucked(child)) &&

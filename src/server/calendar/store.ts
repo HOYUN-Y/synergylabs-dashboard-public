@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, chmod, readFile, writeFile, rename, unlink } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { readFile, writeFile, rename, unlink } from 'node:fs/promises';
+import { appDataDirectory, privateDirectory } from '../platform/storage.js';
 import { join } from 'node:path';
 import { keychainCredentials } from '../mail/store.js';
 import type { Credentials } from '../mail/store.js';
@@ -9,7 +9,7 @@ import { CalendarError } from './errors.js';
 export interface CalendarConnection { credentialId: string; clientId: string; selected: CalendarChoice | null; obsoleteIds: string[] }
 export class CalendarStore {
   private file: string;
-  constructor(private directory = join(homedir(), 'Library', 'Application Support', 'SynergyLabs Dashboard'),
+  constructor(private directory = appDataDirectory(),
     private credentials: Credentials = keychainCredentials('kr.synergylabs.dashboard.calendar')) {
     this.file = join(directory, 'calendar.json');
   }
@@ -28,8 +28,7 @@ export class CalendarStore {
   private async write(value: CalendarConnection) {
     const temp = `${this.file}.${randomUUID()}.tmp`;
     try {
-      await mkdir(this.directory, { recursive: true, mode: 0o700 });
-      await chmod(this.directory, 0o700);
+      await privateDirectory(this.directory);
       await writeFile(temp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
       await rename(temp, this.file);
     } catch { throw new CalendarError('STORAGE_FAILED'); }

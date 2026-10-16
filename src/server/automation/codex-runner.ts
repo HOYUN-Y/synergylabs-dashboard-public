@@ -4,12 +4,16 @@ import { join } from 'node:path';
 import type { ExecutionSettings } from '../../shared/automation.js';
 import type { ProcessRunner } from './runner.js';
 import { AutomationError } from './errors.js';
+import { processEnvironment } from '../platform/commands.js';
 
 export function codexConfig(working: string, output: string) {
   const permissions = `permissions.dashboard.filesystem={ ":root"="deny", ":minimal"="read", ":tmpdir"="deny", ":slash_tmp"="deny", ${JSON.stringify(homedir())}="deny", ${JSON.stringify(working)}="read", ${JSON.stringify(output)}="write" }`;
   return ['default_permissions="dashboard"', permissions, 'permissions.dashboard.network.enabled=false',
     'approval_policy="never"', 'allow_login_shell=false', 'shell_environment_policy.inherit="none"',
-    'shell_environment_policy.set={PATH="/usr/bin:/bin:/usr/sbin:/sbin"}',
+    `shell_environment_policy.set=${process.platform === 'win32'
+      ? '{' + Object.entries(processEnvironment()).filter(([key]) => ['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'COMSPEC'].includes(key)).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(',') + '}'
+      : '{PATH="/usr/bin:/bin:/usr/sbin:/sbin"}'}`,
+    ...(process.platform === 'win32' ? ['windows.sandbox="elevated"'] : []),
     'features.hooks=false', 'features.plugins=false', 'features.remote_plugin=false', 'features.multi_agent=false',
     'features.multi_agent_v2=false', 'features.shell_snapshot=false', 'features.skip_host_skill_discovery=true',
     'features.skill_search=false', 'project_doc_max_bytes=0',

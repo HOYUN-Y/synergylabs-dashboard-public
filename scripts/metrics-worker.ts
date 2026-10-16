@@ -47,7 +47,7 @@ try {
     } else {
       const { snapshot, file } = await collectYouTubeMetrics({ apiKey: process.env.YOUTUBE_DATA_API_KEY ?? '', outputDirectory: process.env.YOUTUBE_METRICS_DIR ?? '', analytics: new YouTubeAnalyticsCollector() });
       attempt.snapshotSaved = true;
-      attempt.snapshotFile = relative(process.env.YOUTUBE_METRICS_DIR!, file);
+      attempt.snapshotFile = relative(process.env.YOUTUBE_METRICS_DIR!, file).replaceAll('\\', '/');
       const analytics = snapshot.analytics!;
       if (analytics.status !== 'succeeded') {
         const codes = [analytics.errorCode, ...analytics.videos.map(v => v.errorCode)].filter((v): v is NonNullable<typeof v> => !!v);

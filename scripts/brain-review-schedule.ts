@@ -9,6 +9,7 @@ import { parseArgs } from 'node:util';
 import { AutomationStore } from '../src/server/automation/store.js';
 import { reviewDirectory } from '../src/server/brain/review.js';
 import { sourceRoot } from '../src/server/workspace-paths.js';
+import { windowsSchedule, nextLocalTime } from '../src/server/platform/schedule.js';
 
 const execute = promisify(execFile);
 export const scheduleLabel = 'com.synergylabs.dashboard.brain-review';
@@ -25,7 +26,19 @@ try {
   const { values } = parseArgs({ options: { install: { type: 'boolean' }, status: { type: 'boolean' }, uninstall: { type: 'boolean' },
     hour: { type: 'string' }, minute: { type: 'string' }, weekday: { type: 'string' }, workspace: { type: 'string' }, state: { type: 'string' } } });
   const modes = [values.install, values.status, values.uninstall].filter(Boolean).length;
-  if (process.platform !== 'darwin' || modes !== 1) throw new Error('USAGE');
+  if (!['darwin', 'win32'].includes(process.platform) || modes !== 1) throw new Error('USAGE');
+  if (process.platform === 'win32') {
+    if (values.install) {
+      const hour = Number(values.hour ?? 9), minute = Number(values.minute ?? 0), weekday = values.weekday === undefined ? undefined : Number(values.weekday);
+      if (Intl.DateTimeFormat().resolvedOptions().timeZone !== 'Asia/Seoul' || !Number.isInteger(hour) || hour < 0 || hour > 23 || !Number.isInteger(minute) || minute < 0 || minute > 59 || (weekday !== undefined && (!Number.isInteger(weekday) || weekday < 1 || weekday > 7))) throw new Error('USAGE');
+      const workspace = values.workspace ?? (await new AutomationStore().settings()).workspace;
+      if (!workspace) throw new Error('WORKSPACE_REQUIRED');
+      const paths = await reviewDirectory(workspace, { state: values.state });
+      await windowsSchedule('install', scheduleLabel, { command: process.execPath, args: ['--import', 'tsx', join(repositoryRoot, 'src/server/brain/cli.ts'), 'review', 'run', '--workspace', paths.workspace, '--scheduled', ...(values.state ? ['--state', values.state] : [])], cwd: repositoryRoot, at: nextLocalTime(hour, minute), weekday });
+      console.info('로그인 사용자용 세컨드 브레인 예약 등록 완료.');
+    } else if (values.uninstall) { await windowsSchedule('remove', scheduleLabel); console.info('세컨드 브레인 예약 해제 완료.'); }
+    else console.info(await windowsSchedule('status', scheduleLabel));
+  } else {
   if (values.install) {
     if (Intl.DateTimeFormat().resolvedOptions().timeZone !== 'Asia/Seoul') { console.error('예약 설치는 Mac 시간대가 Asia/Seoul일 때 지원합니다.'); process.exit(1); }
     const hour = Number(values.hour ?? 9), minute = Number(values.minute ?? 0), weekday = values.weekday === undefined ? null : Number(values.weekday);
@@ -66,6 +79,7 @@ try {
     let detail = '';
     try { const xml = await readFile(file, 'utf8'); const h = xml.match(/<key>Hour<\/key><integer>(\d+)/)?.[1], m = xml.match(/<key>Minute<\/key><integer>(\d+)/)?.[1], w = xml.match(/<key>Weekday<\/key><integer>(\d+)/)?.[1]; detail = ` · ${w === undefined ? '매일' : `주 1회(launchd Weekday ${w})`} ${h?.padStart(2, '0')}:${m?.padStart(2, '0')}`; } catch { /* 파일 없음 */ }
     console.info(`세컨드 브레인 점검 예약: ${await registered() ? `등록됨${detail}` : '미등록'}`);
+  }
   }
 } catch (error) {
   console.error((error as Error).message === 'USAGE' ? usage : `예약 설정을 처리하지 못했습니다. ${usage} 경로 · 권한 · 기존 예약을 확인해 주세요.`);

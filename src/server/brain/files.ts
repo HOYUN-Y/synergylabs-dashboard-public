@@ -1,7 +1,7 @@
-import { constants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
+import { openRegular } from '../platform/storage.js';
+import { revealFile } from '../platform/desktop.js';
 import { join, relative, isAbsolute, sep } from 'node:path';
-import { execFile } from 'node:child_process';
 import { sourceRoot } from '../workspace-paths.js';
 
 export class BrainError extends Error {
@@ -31,7 +31,7 @@ export async function checkedPath(root: string, path: string, output: string) {
 
 export async function readText(root: string, path: string, output: string, limit: number) {
   const file = await checkedPath(root, path, output);
-  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await openRegular(file);
   try {
     const info = await handle.stat();
     const current = await lstat(await checkedPath(root, path, output));
@@ -51,11 +51,7 @@ export async function readText(root: string, path: string, output: string, limit
   } finally { await handle.close(); }
 }
 
-export function revealInFinder(path: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('/usr/bin/open', ['-R', path], { timeout: 5000 }, error => {
-      if (error) reject(new BrainError('REVEAL_FAILED', 503, 'Finder에서 위치를 표시하지 못했습니다. 경로를 복사해 확인해 주세요.'));
-      else resolve();
-    });
-  });
+export async function revealInFinder(path: string): Promise<void> {
+  try { await revealFile(path); }
+  catch { throw new BrainError('REVEAL_FAILED', 503, '파일 위치를 표시하지 못했습니다. 경로를 복사해 확인해 주세요.'); }
 }

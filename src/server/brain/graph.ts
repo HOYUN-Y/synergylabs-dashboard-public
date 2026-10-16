@@ -67,7 +67,7 @@ export class BrainGraphService {
       warningSet.add(message);
       if (warnings.length < 200) warnings.push(message); else if (warnings.length === 200) warnings.push('추가 경고는 생략했습니다.');
     };
-    const canReveal = (this.options.platform ?? process.platform) === 'darwin';
+    const canReveal = ['darwin', 'win32'].includes(this.options.platform ?? process.platform);
     const makeNode = (path: string, kind: GraphNode['kind'], modifiedAt?: string): GraphNode => {
       const extension = kind === 'file' ? extname(path).toLowerCase() : undefined;
       return { id: id(path), parentId: path ? id(dirname(path) === '.' ? '' : dirname(path)) : null,

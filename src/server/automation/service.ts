@@ -42,8 +42,8 @@ export class AutomationService {
     const result = await this.scan(root, undefined, await scanWorkspace(root, (await this.settings()).outputDirectory));
     for (const item of result.items) {
       if (item.adapter === 'youtube') {
-        item.ready = process.platform === 'darwin' && this.collection.available('youtube');
-        item.reason = item.ready ? null : '수집 담당 Mac의 YouTube API·저장 경로 설정이 필요합니다.';
+        item.ready = this.collection.supported() && this.collection.available('youtube');
+        item.reason = item.ready ? null : '수집 담당 컴퓨터의 YouTube API·저장 경로 설정이 필요합니다.';
       }
       if (item.kind !== 'skill') continue;
       const settings = await this.store.skillSettings(item.id);

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { spawnManaged, killManaged } from '../src/server/platform/process.ts';
 import { fileURLToPath } from 'node:url';
 
 const cwd = fileURLToPath(new URL('../', import.meta.url));
@@ -9,10 +10,10 @@ function stop(code) {
   if (stopping) return;
   stopping = true;
   process.exitCode = code;
-  for (const child of children) child.kill('SIGTERM');
+  for (const child of children) killManaged(child);
   const timer = setTimeout(() => {
     for (const child of children) {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      if (child.exitCode === null && child.signalCode === null) killManaged(child, 'SIGKILL');
     }
   }, 5000);
   timer.unref();
@@ -22,7 +23,8 @@ for (const [name, args] of [
   ['서버', ['--import', 'tsx', 'src/server/index.ts']],
   ['화면', ['node_modules/vite/bin/vite.js']]
 ]) {
-  const child = spawn(process.execPath, args, { cwd, stdio: 'inherit' });
+  const child = spawnManaged(process.execPath, args, { cwd, env: process.env });
+  child.stdin.end(); child.stdout.pipe(process.stdout); child.stderr.pipe(process.stderr);
   children.push(child);
   child.on('error', (error) => {
     console.error(`${name} 실행 실패: ${error.message}`);

@@ -1,5 +1,8 @@
 import { promisify } from 'node:util';
-import { spawn, execFile } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { spawnManaged, killManaged } from '../platform/process.js';
+import { processEnvironment } from '../platform/commands.js';
+import { windowsSchedule } from '../platform/schedule.js';
 import { access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, isAbsolute } from 'node:path';
@@ -19,6 +22,7 @@ export class MetricsCollection {
     return !!(service === 'ghost' ? this.env.GHOST_ADMIN_API_URL && this.env.GHOST_ADMIN_API_KEY && isAbsolute(this.env.GHOST_METRICS_DIR ?? '')
       : this.env.YOUTUBE_DATA_API_KEY && isAbsolute(this.env.YOUTUBE_METRICS_DIR ?? ''));
   }
+  supported() { return process.platform === 'darwin' || process.platform === 'win32'; }
   outputDirectory() { return this.env.YOUTUBE_METRICS_DIR ?? ''; }
   async cancel(id: string) {
     const attempt = await this.store.attempt(id);
@@ -27,7 +31,10 @@ export class MetricsCollection {
   }
   async status(now = new Date()): Promise<CollectionStatus> {
     let registered = false;
-    try { await access(scheduleFile()); await promisify(execFile)('/bin/launchctl', ['print', `gui/${process.getuid!()}/${scheduleLabel}`], { timeout: 2000, maxBuffer: 65536 }); registered = true; } catch { /* 미등록 */ }
+    if (process.platform === 'win32') registered = (await windowsSchedule('status', scheduleLabel)).registered;
+    else if (process.platform === 'darwin') {
+      try { await access(scheduleFile()); await promisify(execFile)('/bin/launchctl', ['print', `gui/${process.getuid!()}/${scheduleLabel}`], { timeout: 2000, maxBuffer: 65536 }); registered = true; } catch { /* 미등록 */ }
+    }
     const entries = await Promise.all(METRIC_SERVICES.map(async service => {
       const state = recoverState(await this.store.read(service));
       return [service, { ...state, available: this.available(service), nextRetryAt: registered ? nextRetry(state, now) : null }] as const;
@@ -38,18 +45,19 @@ export class MetricsCollection {
     if (trigger === 'manual' && !this.available(service) && !outputDirectory) throw new CollectionError('NOT_CONFIGURED');
     await this.store.prepare();
     const id = randomUUID();
-    const environment = Object.fromEntries(permittedEnvironment.flatMap(key => this.env[key] === undefined ? [] : [[key, this.env[key]!]]));
+    const environment = { ...processEnvironment(this.env), ...Object.fromEntries(permittedEnvironment.flatMap(key => this.env[key] === undefined ? [] : [[key, this.env[key]!]])) };
     if (outputDirectory) environment[service === 'ghost' ? 'GHOST_METRICS_DIR' : 'YOUTUBE_METRICS_DIR'] = outputDirectory;
-    const child = spawn('/usr/bin/lockf', ['-k', '-t', '0', join(this.store.directory, `${service}.lock`), process.execPath,
+    const child = spawnManaged(process.execPath, [
       '--import', 'tsx', join(repositoryRoot, 'scripts/metrics-worker.ts'), service, trigger, id, this.store.directory, String(this.timeout)],
-    { cwd: repositoryRoot, env: environment, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    { cwd: repositoryRoot, env: environment, lockFile: join(this.store.directory, `${service}.lock`) });
+    child.stdin.end();
     let accept!: () => void, rejectStart!: (e: unknown) => void;
     const started = new Promise<void>((resolve, reject) => { accept = resolve; rejectStart = reject; });
     let resolveDone!: (a: CollectionAttempt) => void, rejectDone!: (e: unknown) => void;
     const done = new Promise<CollectionAttempt>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
     void done.catch(() => {});
     let ready = false, timedOut = false, cancelled = false, closed = false, output = '', bytes = 0, checkingCancel = false;
-    const kill = (signal: NodeJS.Signals) => { try { if (child.pid) process.kill(-child.pid, signal); } catch { /* 이미 종료됨 */ } };
+    const kill = (signal: NodeJS.Signals) => killManaged(child, signal);
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => { timedOut = true; kill('SIGTERM'); killTimer = setTimeout(() => kill('SIGKILL'), 3000); }, this.timeout + 3000);
     // 요청 파일의 PID로 죽이지 않는다. 실제 자식을 소유한 실행기만 자기 프로세스 그룹을 종료한다.
