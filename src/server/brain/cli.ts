@@ -21,6 +21,7 @@ async function stdinJson() {
   try { return JSON.parse(input) as unknown; } catch { throw new MemoryError('INVALID_INPUT', '표준입력은 JSON 객체여야 합니다.'); }
 }
 
+let scheduledDirectory: string | undefined;
 try {
   const { values, positionals } = parseArgs({ options: {
     workspace: { type: 'string' }, state: { type: 'string' }, status: { type: 'string' }, note: { type: 'string' },
@@ -32,6 +33,10 @@ try {
     const options = { state: values.state };
     const needId = (id: string | undefined) => id ?? (() => { throw new ReviewError('INVALID_INPUT', usage); })();
     if (query === 'run' && positionals.length === 2) {
+      if (values.scheduled) {
+        const { reviewDirectory } = await import('./review.js');
+        scheduledDirectory = (await reviewDirectory(values.workspace, options)).stateDirectory;
+      }
       result = await runReviewUpdate(values.workspace, { ...options, trigger: values.scheduled ? 'scheduled' : 'manual' });
       if (values.scheduled) {
         const { reviewDirectory } = await import('./review.js');
@@ -63,6 +68,7 @@ try {
   const scheduled = process.argv.includes('--scheduled');
   const payload = { error: known ? error.code : error instanceof BrainConfigError ? 'CONFIG_INVALID' : 'MEMORY_UNAVAILABLE',
     message: known ? error.message : error instanceof BrainConfigError ? '세컨드 브레인 설정 형식을 확인하세요.' : '기억 · 점검 경로, 파일 권한, 입력 형식을 확인하세요.' };
+  if (scheduledDirectory) await appendScheduleLog(scheduledDirectory, `${new Date().toISOString()} failed ${payload.error}`).catch(() => {});
   // 예약 실행(launchd)의 표준 오류는 예약 스크립트가 상태 폴더의 schedule-error.log로 보낸다
   console.error(JSON.stringify({ ...payload, ...(scheduled ? { at: new Date().toISOString(), scheduled: true } : {}) }));
   process.exitCode = 1;
