@@ -11,6 +11,8 @@ import type { BrainConfig } from './config.js';
 import { excludedPath, readText } from './files.js';
 import { createLinkResolver, extractLinks, linkSource, normalized } from './links.js';
 import { MemoryError, recallMemory } from './memory.js';
+import { isMaterial, materialBundles } from './review-materials.js';
+import type { MaterialBundle } from './review-materials.js';
 import { scanWorkspace } from '../workspace-scan.js';
 
 export class ReviewError extends Error {
@@ -19,12 +21,12 @@ export class ReviewError extends Error {
 function fail(code: string, message: string): never { throw new ReviewError(code, message); }
 
 export type ReviewStatus = 'awaiting_interview' | 'applying' | 'partial' | 'failed' | 'done';
-export type FindingKind = 'added' | 'modified' | 'missing' | 'unindexed' | 'broken_link' | 'external_link' | 'duplicate' | 'thin_description' | 'memory_related';
+export type FindingKind = 'added' | 'modified' | 'missing' | 'unindexed' | 'broken_link' | 'external_link' | 'duplicate' | 'thin_description' | 'memory_related' | 'materials';
 export type Decision = 'apply' | 'hold' | 'skip';
 export interface Finding {
-  version?: string; key: string; kind: FindingKind; path: string; detail: string; facts: string[]; firstSeenAt: string;
+  active?: boolean; bundle?: MaterialBundle; version?: string; key: string; kind: FindingKind; path: string; detail: string; facts: string[]; firstSeenAt: string;
   /** 같은 구조(수집 실행 폴더 등)의 문서를 묶은 발견: ID · 시각 구간을 '*'로 바꾼 경로 패턴과 개수 */
-  group?: { pattern: string; count: number };
+  group?: { pattern: string; count: number; members?: { path: string; version: string }[] };
 }
 export interface Question { id: string; findingKeys: string[]; text: string; facts: string[]; answer?: { text: string; decision: Decision; at: string; origin?: 'user' | 'agent' } }
 export interface ReviewCase {
@@ -43,7 +45,7 @@ interface Inspection { snapshot: Snapshot; findings: RawFinding[]; warnings: str
 
 export const kindLabels: Record<FindingKind, string> = {
   added: '새 자료', modified: '변경된 자료', missing: '사라진 자료(확인 필요)', unindexed: '색인 미연결 문서', broken_link: '끊어진 링크',
-  external_link: '작업 공간 밖 경로 링크', duplicate: '중복 후보', thin_description: '설명 부족 항목', memory_related: '관련 기억 있음'
+  external_link: '작업 공간 밖 경로 링크', duplicate: '중복 후보', thin_description: '설명 부족 항목', memory_related: '관련 기억 있음', materials: '자료 묶음 안내'
 };
 const deltaKinds: FindingKind[] = ['added', 'modified', 'missing'];
 /** 수집 ID · 실행 시각 · 날짜 · 영상 ID처럼 보이는 경로 구간을 '*'로 바꾼 패턴. 같은 구조의 문서를 한 발견으로 묶는 데 쓴다 */
@@ -183,7 +185,7 @@ function thinRows(text: string) {
 }
 
 /** 현재 작업 공간을 읽어 기준점 대비 변경과 구조 점검 결과를 만든다. 아무 파일도 쓰지 않는다 */
-async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapshot | null, dismissed: WorkspaceState['dismissed']): Promise<Inspection> {
+async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapshot | null, dismissed: WorkspaceState['dismissed'], applied: ReviewCase['applied'] = [], signal?: AbortSignal): Promise<Inspection> {
   const inventory = await scanWorkspace(p.root, '', true);
   const warnings = [...inventory.warnings];
   const files = inventory.files.filter(f => !excludedPath(f.path));
@@ -204,6 +206,7 @@ async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapsho
   const texts = new Map<string, string>();
   snapshot.hashes = {};
   for (const path of markdown) {
+    signal?.throwIfAborted();
     try {
       const { content } = await readText(p.root, path, '', LIMIT);
       texts.set(path, content);
@@ -222,21 +225,22 @@ async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapsho
         for (const t of result.targets) { targets.push(t); incoming.set(t, [...(incoming.get(t) ?? []), path]); }
       }
       edges.set(path, targets);
-    } catch { warnings.push(`${path}: 문서를 읽지 못해 링크 점검에서 제외했습니다.`); }
+    } catch { signal?.throwIfAborted(); warnings.push(`${path}: 문서를 읽지 못해 링크 점검에서 제외했습니다.`); }
   }
   // 기준점 대비 변경
   if (baseline) {
+    const ownChanges = new Map(applied.map(a => [normalized(a.path), a.hash]));
     for (const [path, at] of Object.entries(snapshot.files)) {
+      if (snapshot.hashes?.[path] && ownChanges.get(normalized(path)) === snapshot.hashes[path]) continue;
       if (!(path in baseline.files)) changed.set(path, 'added');
       else if ((baseline.hashes?.[path] && snapshot.hashes?.[path] ? baseline.hashes[path] !== snapshot.hashes[path] : baseline.files[path] !== at)) changed.set(path, 'modified');
     }
     for (const path of Object.keys(baseline.files)) if (!(path in snapshot.files))
-      add({ key: `missing:${path}`, kind: 'missing', path, detail: '기준점에는 있었지만 지금은 없습니다. 이동 · 이름 변경 · 삭제인지 담당자 확인이 필요하며 자동으로 정리하지 않습니다.', facts: [`기준점 수정 시각 ${baseline.files[path]}`], question: true });
+      add({ key: `missing:${path}`, kind: 'missing', path, detail: '기준점에는 있었지만 지금은 없습니다. 이동 · 이름 변경 · 삭제인지 담당자 확인이 필요하며 자동으로 정리하지 않습니다.', facts: [`기준점 수정 시각 ${baseline.files[path]}`], question: /\.md$/i.test(path) });
   }
 
   const guideSet = new Set(router ? routeGuides(config, edges.get(router) ?? []).values() : []);
   const guides = [...(router ? [router] : []), ...guideSet];
-  const linkedFrom = (path: string) => (incoming.get(path) ?? []).filter(from => guides.includes(from));
 
   // 라우터에서 Markdown 링크로 닿는 문서
   const reachable = new Set<string>();
@@ -251,10 +255,18 @@ async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapsho
   } else warnings.push(`${config.routerFile}가 없어 색인 연결 점검을 건너뛰었습니다.`);
 
   for (const [path, kind] of changed) {
-    const indexed = linkedFrom(path);
+    const indexed = (incoming.get(path) ?? []).filter(from => reachable.has(from));
+    const document = /\.md$/i.test(path);
     const facts = [`경로 ${path}`, `분야 ${areaName(path)}`, `수정 시각 ${snapshot.files[path]}`, indexed.length ? `색인 연결: ${indexed.join(', ')}` : '색인 연결: 없음'];
-    if (kind === 'added') add({ key: `added:${path}`, kind, path, detail: indexed.length ? '기준점 이후 추가됐고 색인에 연결돼 있습니다.' : '기준점 이후 추가됐고 라우터 · 분야 안내에 직접 연결되지 않았습니다.', facts, question: !indexed.length });
-    else add({ key: `modified:${path}`, kind, path, detail: guides.includes(path) ? '라우터 · 분야 안내 자체가 바뀌었습니다.' : '기준점 이후 내용이 바뀌었습니다. 색인 설명이나 기억의 기준도 바뀌어야 하는지 확인합니다.', facts, question: !guides.includes(path) });
+    if (kind === 'added') add({ key: `added:${path}`, kind, path, detail: indexed.length ? '기준점 이후 추가됐고 색인에 연결돼 있습니다.' : '기준점 이후 추가됐고 라우터 · 분야 안내에 직접 연결되지 않았습니다.', facts, question: document && !indexed.length });
+    else add({ key: `modified:${path}`, kind, path, detail: guides.includes(path) ? '라우터 · 분야 안내 자체가 바뀌었습니다.' : '기준점 이후 내용이 바뀌었습니다. 색인 설명이나 기억의 기준도 바뀌어야 하는지 확인합니다.', facts, question: document && !guides.includes(path) });
+  }
+  if (router) for (const bundle of materialBundles(files.map(f => f.path).concat(inventory.folders), texts, reachable, changed, config, inventory.folders)) {
+    const versions = [...bundle.members, ...bundle.context].map(path => [path, snapshot.hashes?.[path] ?? snapshot.files[path]]);
+    add({ key: `materials:${bundle.root}:${bundle.members[0]}`, kind: 'materials', path: bundle.root, bundle,
+      detail: '자료 묶음의 기존 안내·구성 파일 연결을 확인합니다. 가까운 README만으로 연결 완료라 판단하지 않습니다.',
+      facts: [`묶음 ${bundle.root}`, ...bundle.members.map(path => `구성 파일 ${path}`), ...bundle.context.map(path => `안내 후보 ${path}`)],
+      version: createHash('sha256').update(JSON.stringify(['materials-v1', versions])).digest('hex'), question: true });
   }
   if (router) {
     const unindexed = new Map<string, string[]>();
@@ -264,7 +276,7 @@ async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapsho
       unindexed.set(pattern, [...(unindexed.get(pattern) ?? []), path]);
     }
     for (const [pattern, group] of unindexed) {
-      if (group.length > 1) add({ key: `unindexed:${pattern}`, kind: 'unindexed', path: group[0], group: { pattern, count: group.length },
+      if (group.length > 1) add({ key: `unindexed:${pattern}`, kind: 'unindexed', path: group[0], group: { pattern, count: group.length, members: group.map(path => ({ path, version: snapshot.hashes?.[path] ?? snapshot.files[path] })) },
         detail: `같은 구조의 문서 ${group.length}개(${pattern})가 라우터에서 Markdown 링크로 닿지 않습니다. 상위 색인에 묶어서 연결할지, 보관만 할지 확인합니다.`,
         facts: [`패턴 ${pattern}`, `분야 ${areaName(group[0])}`, ...group.slice(0, 10).map(g => `경로 ${g}`), ...(group.length > 10 ? [`외 ${group.length - 10}개`] : [])], question: true });
       else add({ key: `unindexed:${group[0]}`, kind: 'unindexed', path: group[0], detail: '라우터에서 Markdown 링크로 닿지 않는 문서입니다. 어느 분야 안내 · 색인에 넣을지, 보관만 할지 확인합니다.', facts: [`경로 ${group[0]}`, `분야 ${areaName(group[0])}`, `제목 ${titles.get(group[0]) || '(없음)'}`], question: true });
@@ -316,6 +328,7 @@ async function inspectWorkspace(p: Paths, config: BrainConfig, baseline: Snapsho
   }
   for (const f of findings) {
     const versions = f.group ? Object.keys(snapshot.files).filter(path => patternOf(path) === f.group!.pattern).map(path => [path, snapshot.hashes?.[path] ?? snapshot.files[path]]) : [snapshot.hashes?.[f.path] ?? snapshot.files[f.path] ?? null];
+    if (f.kind === 'materials') continue;
     f.version = createHash('sha256').update(JSON.stringify([f.detail, f.group, versions])).digest('hex');
   }
   return { snapshot, findings, warnings: [...new Set(warnings)], stats, baselineAt: baseline?.takenAt ?? null };
@@ -345,6 +358,7 @@ function draftQuestions(findings: Finding[], existing: Question[]): Question[] {
   for (const f of of('unindexed')) push([f.key], f.group
     ? `같은 구조의 문서 ${f.group.count}개(${f.group.pattern})가 라우터에서 링크로 닿지 않습니다. 상위 색인에 묶어서 연결할지, 보관만 하고 색인하지 않을지 알려주세요.`
     : `'${f.path}'은(는) 라우터에서 링크로 닿지 않습니다. 어느 분야 안내 · 색인에 넣을지, 보관만 하고 색인하지 않을지 알려주세요.`, f.facts);
+  for (const f of of('materials')) push([f.key], `'${f.path}' 자료 묶음의 안내를 확인합니다. 기존 README·색인을 우선 보완하고, 주요 파일은 직접 연결하며 반복 파일은 역할별 폴더·구성 목록으로 안내하세요. 별도 INDEX는 기존 안내로 부족하고 근거가 있을 때만 제안하세요.`, f.facts);
   for (const f of of('missing')) push([f.key], `'${f.path}'이(가) 기준점 이후 사라졌습니다. 이동 · 이름 변경 · 삭제 중 무엇인지, 색인 · 기억의 링크를 어떻게 바꿀지 알려주세요.`, f.facts);
   for (const f of of('broken_link')) push([f.key], `'${f.path}'의 링크 '${f.facts[1]?.replace(/^링크 /, '')}'이(가) 끊어졌습니다. 대상이 어디로 갔는지, 링크를 고칠지 뺄지 알려주세요.`, f.facts);
   for (const f of of('duplicate')) push([f.key], `${f.detail} 어느 문서가 최종본이고 나머지는 어떻게 안내할까요?`, f.facts);
@@ -381,23 +395,24 @@ async function saveCase(p: Paths, c: ReviewCase) {
   await writeAtomic(join(p.cases, `${c.id}.md`), renderCase(c));
 }
 const summary = (c: ReviewCase) => ({ id: c.id, status: c.status, statusLabel: statusLabels[c.status], createdAt: c.createdAt, lastInspectedAt: c.lastInspectedAt,
-  findings: c.findings.length, questions: c.questions.length, unanswered: c.questions.filter(q => !q.answer).length, applied: c.applied.length });
+  findings: c.findings.length, questions: c.questions.length, unanswered: c.questions.filter(q => !q.answer && c.findings.some(f => f.active !== false && q.findingKeys.includes(f.key))).length, applied: c.applied.length });
 const publicPaths = (p: Paths & { stateSource: string }) => ({ workspace: p.root, stateDirectory: p.directory, stateSource: p.stateSource });
 
 /** 점검 실행: 기준점이 없으면 지금 상태를 기준점으로 삼고 구조 점검만 보고한다. 미완료 건이 있으면 새 건을 만들지 않고 추가 발견만 덧붙인다 */
-export async function inspectReview(workspace: string, options: { state?: string; config?: BrainConfig } = {}) {
+export async function inspectReview(workspace: string, options: { state?: string; config?: BrainConfig; signal?: AbortSignal } = {}) {
   const config = options.config ?? await loadBrainConfig();
   const p = await paths(workspace, config, options.state);
   return locked(p, async () => {
     const state = await loadState(p);
     let baseline = await readJson<Snapshot>(p.baseline);
-    const inspection = await inspectWorkspace(p, config, baseline, state.dismissed);
+    const cases = await listCases(p);
+    const current = openCase(cases);
+    const inspection = await inspectWorkspace(p, config, baseline, state.dismissed, current?.applied, options.signal);
+    options.signal?.throwIfAborted();
     const at = inspection.snapshot.takenAt;
     let firstBaseline = false;
     if (!baseline) { await writeJson(p.baseline, inspection.snapshot); baseline = inspection.snapshot; firstBaseline = true; }
     await writeJson(p.stateFile, { ...state, workspace: p.root });
-    const cases = await listCases(p);
-    const current = openCase(cases);
     const base = { ...publicPaths(p), inspectedAt: at, firstBaseline, baselineAt: baseline.takenAt, stats: inspection.stats, warnings: inspection.warnings };
     if (!inspection.findings.length) {
       if (current) { current.lastInspectedAt = at; await writeJson(join(p.snapshots, `${current.id}.json`), inspection.snapshot); await saveCase(p, current); }
@@ -414,7 +429,7 @@ export async function inspectReview(workspace: string, options: { state?: string
       const previous = target.findings.find(f => f.key === fresh.key);
       if (previous && previous.version !== fresh.version) {
         changedKeys.add(fresh.key);
-        Object.assign(previous, { detail: fresh.detail, facts: fresh.facts, version: fresh.version, group: fresh.group });
+        Object.assign(previous, { detail: fresh.detail, facts: fresh.facts, version: fresh.version, group: fresh.group, bundle: fresh.bundle });
       }
     }
     for (const q of target.questions) if (q.findingKeys.some(key => changedKeys.has(key)) && q.answer) {
@@ -422,19 +437,29 @@ export async function inspectReview(workspace: string, options: { state?: string
       delete q.answer;
     }
     const known = new Set(target.findings.map(f => f.key));
-    const additions: Finding[] = inspection.findings.filter(f => !known.has(f.key)).map(f => ({ version: f.version, key: f.key, kind: f.kind, path: f.path, detail: f.detail, facts: f.facts, firstSeenAt: at, ...(f.group ? { group: f.group } : {}) }));
+    const additions: Finding[] = inspection.findings.filter(f => !known.has(f.key)).map(f => ({ version: f.version, key: f.key, kind: f.kind, path: f.path, detail: f.detail, facts: f.facts, firstSeenAt: at, ...(f.bundle ? { bundle: f.bundle } : {}), ...(f.group ? { group: f.group } : {}) }));
     const needQuestion = new Set(inspection.findings.filter(f => f.question).map(f => f.key));
     // 사라진 발견(해결됨)은 지우지 않고 남겨 두되 해결 표시만 한다 — 질문 중복 방지에 key가 필요하다
     for (const f of target.findings) if (!inspection.findings.some(x => x.key === f.key) && !f.detail.startsWith('[해결됨] ')) f.detail = `[해결됨] ${f.detail}`;
     for (const f of target.findings) if (inspection.findings.some(x => x.key === f.key) && f.detail.startsWith('[해결됨] ')) f.detail = f.detail.slice('[해결됨] '.length);
     target.findings.push(...additions);
-    target.questions.push(...draftQuestions(additions.filter(f => needQuestion.has(f.key)), target.questions));
+    // Technical file-level blockers are superseded, never erased or relabelled as completed work.
+    for (const f of target.findings) {
+      const semanticHold = target.questions.some(q => q.findingKeys.includes(f.key) && q.answer?.decision === 'hold'
+        && (q.answer.origin !== 'agent' || !q.answer.text.includes('UNSUPPORTED_TYPE')));
+      f.active = f.kind === 'materials' || (isMaterial(f.path, config) && deltaKinds.includes(f.kind))
+        ? needQuestion.has(f.key) || semanticHold : true;
+      if (!f.active && isMaterial(f.path, config) && deltaKinds.includes(f.kind)) {
+        if (!f.detail.startsWith('[묶음 검토로 전환] ')) f.detail = `[묶음 검토로 전환] ${f.detail}`;
+      }
+    }
+    target.questions.push(...draftQuestions(target.findings.filter(f => needQuestion.has(f.key)), target.questions));
     target.lastInspectedAt = at;
     if (current && additions.length) target.notes.push({ at, status: target.status, note: `추가 발견 ${additions.length}건을 기존 건에 덧붙였습니다.` });
     await writeJson(join(p.snapshots, `${target.id}.json`), inspection.snapshot);
     await saveCase(p, target);
     return { ...base, result: current ? (additions.length || changedKeys.size ? 'open_case_updated' : 'open_case_unchanged') : 'case_created', case: summary(target), additions: additions.length,
-      report: join(p.cases, `${target.id}.md`), questions: target.questions.filter(q => !q.answer),
+      report: join(p.cases, `${target.id}.md`), questions: target.questions.filter(q => !q.answer && target.findings.some(f => f.active !== false && q.findingKeys.includes(f.key))),
       message: current ? `미완료 점검 건 ${target.id}(${statusLabels[target.status]})에 ${additions.length}건을 덧붙였습니다. 새 건은 만들지 않았습니다.`
         : `점검 건 ${target.id}을 만들었습니다. 인터뷰 대기 상태입니다.` };
   });
@@ -478,7 +503,7 @@ export async function answerReview(workspace: string, id: string, value: unknown
     }
     await writeJson(p.stateFile, state);
     await saveCase(p, c);
-    return { ...publicPaths(p), case: summary(c), unanswered: c.questions.filter(q => !q.answer).map(q => q.id), message: '답변을 기록했습니다. 확정된 내용만 반영하고 반영한 문서는 mark --applied로 남기세요.' };
+    return { ...publicPaths(p), case: summary(c), unanswered: c.questions.filter(q => !q.answer && c.findings.some(f => f.active !== false && q.findingKeys.includes(f.key))).map(q => q.id), message: '답변을 기록했습니다. 확정된 내용만 반영하고 반영한 문서는 mark --applied로 남기세요.' };
   });
 }
 
@@ -508,7 +533,7 @@ export async function markReview(workspace: string, id: string, input: { status?
       }
       const unexpected = fresh.findings.filter(f => deltaKinds.includes(f.kind) && !applied.has(normalized(f.path))).map(f => `${kindLabels[f.kind]}: ${f.path}`);
       if (unexpected.length && !input.acceptNew) fail('NEW_CHANGES', `마지막 점검 이후 반영 기록에 없는 변경 ${unexpected.length}건이 있습니다: ${unexpected.slice(0, 10).join(' / ')}. 다시 inspect하거나 --accept-new로 수용하세요.`);
-      if (c.questions.some(q => !q.answer) && !input.acceptNew) fail('UNANSWERED', `답변 없는 질문 ${c.questions.filter(q => !q.answer).length}개가 있습니다. 보류(hold)로 기록하거나 partial로 남기세요.`);
+      if (c.questions.some(q => !q.answer && c.findings.some(f => f.active !== false && q.findingKeys.includes(f.key))) && !input.acceptNew) fail('UNANSWERED', `답변 없는 질문 ${c.questions.filter(q => !q.answer && c.findings.some(f => f.active !== false && q.findingKeys.includes(f.key))).length}개가 있습니다. 보류(hold)로 기록하거나 partial로 남기세요.`);
       const remaining: Partial<Record<FindingKind, number>> = {};
       for (const f of fresh.findings) if (!deltaKinds.includes(f.kind)) remaining[f.kind] = (remaining[f.kind] ?? 0) + 1;
       verification = { at, remaining, warnings: fresh.warnings };

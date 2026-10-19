@@ -10,7 +10,7 @@ import { executeSkill } from './skill-runner.js';
 import type { SkillContext, SkillDocumentCandidate } from '../../shared/automation.js';
 
 export interface Task { run: StoredRun; item: DiscoveredItem; input: string; selectionCandidates?: SkillDocumentCandidate[]; onContext?: (context: SkillContext) => Promise<void> }
-export interface RunResult { status?: 'succeeded' | 'waiting_input' | 'needs_input' | 'failed' | 'cancelled'; sessionId?: string; context?: SkillContext; message: string; result: string; artifacts: string[]; artifactDirectory: string }
+export interface RunResult { status?: 'succeeded' | 'partial' | 'waiting_input' | 'needs_input' | 'failed' | 'cancelled'; sessionId?: string; context?: SkillContext; message: string; result: string; artifacts: string[]; artifactDirectory: string }
 export interface ProcessSpec { command: string; args: string[]; cwd: string; input?: string; timeout: number; ghostEnv?: { API_URL: string; CONTENT_API_KEY: string } }
 export type ProcessRunner = (spec: ProcessSpec, signal: AbortSignal) => Promise<{ code: number | null; stdout: string }>;
 export type TaskRunner = (task: Task, signal: AbortSignal, store: AutomationStore) => Promise<RunResult>;
